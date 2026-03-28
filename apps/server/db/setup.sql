@@ -1,3 +1,16 @@
+-- Attendees: people with RFID name tags
+CREATE TABLE IF NOT EXISTS attendees (
+  id         SERIAL PRIMARY KEY,
+  epc        TEXT UNIQUE NOT NULL,        -- the EPC encoded on their name tag
+  first_name TEXT NOT NULL,
+  last_name  TEXT NOT NULL,
+  email      TEXT,
+  company    TEXT,
+  title      TEXT,
+  photo_url  TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- Create the scans table
 CREATE TABLE IF NOT EXISTS scans (
   id         SERIAL PRIMARY KEY,
