@@ -90,6 +90,64 @@ const httpServer = http.createServer(async (req, res) => {
     return;
   }
 
+  // POST /welcome — reader near entrance picks up name tag EPCs, look up attendee and broadcast
+  if (req.method === "POST" && req.url === "/welcome") {
+    let body = "";
+    req.on("data", (chunk) => (body += chunk));
+    req.on("end", async () => {
+      try {
+        const { epc, reader_id } = JSON.parse(body);
+        if (!epc) {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "epc is required" }));
+          return;
+        }
+
+        // Look up who this tag belongs to
+        const attendee = await pool.query(
+          "SELECT * FROM attendees WHERE epc = $1",
+          [epc]
+        );
+
+        if (attendee.rows.length === 0) {
+          res.writeHead(404, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "Unknown tag", epc }));
+          return;
+        }
+
+        // Log the scan
+        await pool.query(
+          "INSERT INTO scans (tag_id, reader_id) VALUES ($1, $2)",
+          [epc, reader_id || "welcome-antenna"]
+        );
+
+        const person = attendee.rows[0];
+
+        // Broadcast to all WebSocket clients
+        broadcast({
+          type: "welcome",
+          data: {
+            first_name: person.first_name,
+            last_name: person.last_name,
+            company: person.company,
+            title: person.title,
+            photo_url: person.photo_url,
+            epc: person.epc,
+            arrived_at: new Date().toISOString(),
+          },
+        });
+
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ welcomed: person.first_name + " " + person.last_name }));
+      } catch (err) {
+        console.error("Welcome error:", err);
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Internal server error" }));
+      }
+    });
+    return;
+  }
+
   // GET /scans — fetch recent scans
   if (req.method === "GET" && req.url === "/scans") {
     try {
