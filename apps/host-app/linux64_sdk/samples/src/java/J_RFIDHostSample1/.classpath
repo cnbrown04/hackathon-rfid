@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<classpath>
+	<classpathentry kind="con" path="org.eclipse.jdt.launching.JRE_CONTAINER">
+		<attributes>
+			<attribute name="org.eclipse.jdt.launching.CLASSPATH_ATTR_LIBRARY_PATH_ENTRY" value="/home/zebra/starfish/sdk/linux64_sdk/lib"/>
+			<attribute name="module" value="true"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="src" path="src">
+		<attributes>
+			<attribute name="org.eclipse.jdt.launching.CLASSPATH_ATTR_LIBRARY_PATH_ENTRY" value="/home/zebra/starfish/sdk/linux64_sdk/lib"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="dist/J_RFIDHostSample1.jar"/>
+	<classpathentry kind="lib" path="/home/zebra/starfish/sdk/linux64_sdk/lib/Symbol.RFID.API3.jar" sourcepath="/home/zebra/starfish/rfid-fxseries/RFID/API/src/lib/java/Symbol.RFID.API3"/>
+	<classpathentry kind="output" path="build/classes"/>
+</classpath>
