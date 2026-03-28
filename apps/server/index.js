@@ -27,14 +27,14 @@ function broadcast(data) {
 async function start() {
   // 1. Connect the LISTEN client
   await listener.connect();
-  await listener.query("LISTEN new_scan");
-  console.log("Listening for Postgres NOTIFY on channel: new_scan");
+  await listener.query("LISTEN new_event");
+  console.log("Listening for Postgres NOTIFY on channel: new_event");
 
   // 2. Forward every notification to all WebSocket clients
   listener.on("notification", (msg) => {
-    const scan = JSON.parse(msg.payload);
-    console.log("Scan received:", scan);
-    broadcast({ type: "scan", data: scan });
+    const event = JSON.parse(msg.payload);
+    console.log("Event received:", event);
+    broadcast({ type: "tour_event", data: event });
   });
 
   // 3. Accept WebSocket connections
@@ -63,21 +63,38 @@ const httpServer = http.createServer(async (req, res) => {
     return;
   }
 
-  // POST /scan  — insert a scan row (triggers NOTIFY automatically)
-  if (req.method === "POST" && req.url === "/scan") {
+  // POST /event — insert a tour_event row (triggers NOTIFY automatically)
+  if (req.method === "POST" && req.url === "/event") {
     let body = "";
     req.on("data", (chunk) => (body += chunk));
     req.on("end", async () => {
       try {
-        const { tag_id, reader_id } = JSON.parse(body);
-        if (!tag_id || !reader_id) {
+        const e = JSON.parse(body);
+        if (!e.event_id || !e.event_type || !e.event_ts) {
           res.writeHead(400, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({ error: "tag_id and reader_id required" }));
+          res.end(JSON.stringify({ error: "event_id, event_type, and event_ts are required" }));
           return;
         }
         const result = await pool.query(
-          "INSERT INTO scans (tag_id, reader_id) VALUES ($1, $2) RETURNING *",
-          [tag_id, reader_id]
+          `INSERT INTO tour_event (
+            event_id, event_type, event_ts, site_id, reader_id, antenna_id,
+            tour_id, epc, epc_list_csv, window_start_epoch_sec, window_end_epoch_sec,
+            read_count_60s, unique_tag_count_60s, avg_rssi_60s,
+            baseline_read_count, baseline_avg_rssi,
+            count_drop_pct, rssi_drop_db,
+            threshold_count_drop_pct, threshold_rssi_drop_db,
+            consecutive_checks_required
+          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
+          RETURNING *`,
+          [
+            e.event_id, e.event_type, e.event_ts, e.site_id, e.reader_id, e.antenna_id,
+            e.tour_id, e.epc, e.epc_list_csv, e.window_start_epoch_sec, e.window_end_epoch_sec,
+            e.read_count_60s, e.unique_tag_count_60s, e.avg_rssi_60s,
+            e.baseline_read_count, e.baseline_avg_rssi,
+            e.count_drop_pct, e.rssi_drop_db,
+            e.threshold_count_drop_pct, e.threshold_rssi_drop_db,
+            e.consecutive_checks_required
+          ]
         );
         res.writeHead(201, { "Content-Type": "application/json" });
         res.end(JSON.stringify(result.rows[0]));
@@ -105,7 +122,7 @@ const httpServer = http.createServer(async (req, res) => {
 
         // Look up who this tag belongs to
         const attendee = await pool.query(
-          "SELECT * FROM attendees WHERE epc = $1",
+          "SELECT * FROM attendee WHERE epc = $1",
           [epc]
         );
 
@@ -115,10 +132,11 @@ const httpServer = http.createServer(async (req, res) => {
           return;
         }
 
-        // Log the scan
+        // Log the welcome event
         await pool.query(
-          "INSERT INTO scans (tag_id, reader_id) VALUES ($1, $2)",
-          [epc, reader_id || "welcome-antenna"]
+          `INSERT INTO tour_event (event_id, event_type, event_ts, reader_id, epc)
+           VALUES (gen_random_uuid(), 'welcome', NOW(), $1, $2)`,
+          [reader_id || "welcome-antenna", epc]
         );
 
         const person = attendee.rows[0];
@@ -148,11 +166,11 @@ const httpServer = http.createServer(async (req, res) => {
     return;
   }
 
-  // GET /scans — fetch recent scans
-  if (req.method === "GET" && req.url === "/scans") {
+  // GET /events — fetch recent tour events
+  if (req.method === "GET" && req.url === "/events") {
     try {
       const result = await pool.query(
-        "SELECT * FROM scans ORDER BY scanned_at DESC LIMIT 50"
+        "SELECT * FROM tour_event ORDER BY event_ts DESC LIMIT 50"
       );
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify(result.rows));
