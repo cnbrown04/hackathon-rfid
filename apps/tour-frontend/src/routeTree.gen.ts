@@ -11,7 +11,11 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as WelcomeRouteImport } from './routes/welcome'
 import { Route as AntennaRouteImport } from './routes/antenna'
+import { Route as AdminRouteRouteImport } from './routes/admin/route'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AdminIndexRouteImport } from './routes/admin/index'
+import { Route as AdminToursRouteImport } from './routes/admin/tours'
+import { Route as AdminPeopleRouteImport } from './routes/admin/people'
 
 const WelcomeRoute = WelcomeRouteImport.update({
   id: '/welcome',
@@ -23,38 +27,91 @@ const AntennaRoute = AntennaRouteImport.update({
   path: '/antenna',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminRouteRoute = AdminRouteRouteImport.update({
+  id: '/admin',
+  path: '/admin',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminIndexRoute = AdminIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AdminRouteRoute,
+} as any)
+const AdminToursRoute = AdminToursRouteImport.update({
+  id: '/tours',
+  path: '/tours',
+  getParentRoute: () => AdminRouteRoute,
+} as any)
+const AdminPeopleRoute = AdminPeopleRouteImport.update({
+  id: '/people',
+  path: '/people',
+  getParentRoute: () => AdminRouteRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/admin': typeof AdminRouteRouteWithChildren
   '/antenna': typeof AntennaRoute
   '/welcome': typeof WelcomeRoute
+  '/admin/people': typeof AdminPeopleRoute
+  '/admin/tours': typeof AdminToursRoute
+  '/admin/': typeof AdminIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/antenna': typeof AntennaRoute
   '/welcome': typeof WelcomeRoute
+  '/admin/people': typeof AdminPeopleRoute
+  '/admin/tours': typeof AdminToursRoute
+  '/admin': typeof AdminIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/admin': typeof AdminRouteRouteWithChildren
   '/antenna': typeof AntennaRoute
   '/welcome': typeof WelcomeRoute
+  '/admin/people': typeof AdminPeopleRoute
+  '/admin/tours': typeof AdminToursRoute
+  '/admin/': typeof AdminIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/antenna' | '/welcome'
+  fullPaths:
+    | '/'
+    | '/admin'
+    | '/antenna'
+    | '/welcome'
+    | '/admin/people'
+    | '/admin/tours'
+    | '/admin/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/antenna' | '/welcome'
-  id: '__root__' | '/' | '/antenna' | '/welcome'
+  to:
+    | '/'
+    | '/antenna'
+    | '/welcome'
+    | '/admin/people'
+    | '/admin/tours'
+    | '/admin'
+  id:
+    | '__root__'
+    | '/'
+    | '/admin'
+    | '/antenna'
+    | '/welcome'
+    | '/admin/people'
+    | '/admin/tours'
+    | '/admin/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AdminRouteRoute: typeof AdminRouteRouteWithChildren
   AntennaRoute: typeof AntennaRoute
   WelcomeRoute: typeof WelcomeRoute
 }
@@ -75,6 +132,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AntennaRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin': {
+      id: '/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof AdminRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -82,11 +146,49 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/': {
+      id: '/admin/'
+      path: '/'
+      fullPath: '/admin/'
+      preLoaderRoute: typeof AdminIndexRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
+    '/admin/tours': {
+      id: '/admin/tours'
+      path: '/tours'
+      fullPath: '/admin/tours'
+      preLoaderRoute: typeof AdminToursRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
+    '/admin/people': {
+      id: '/admin/people'
+      path: '/people'
+      fullPath: '/admin/people'
+      preLoaderRoute: typeof AdminPeopleRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
   }
 }
 
+interface AdminRouteRouteChildren {
+  AdminPeopleRoute: typeof AdminPeopleRoute
+  AdminToursRoute: typeof AdminToursRoute
+  AdminIndexRoute: typeof AdminIndexRoute
+}
+
+const AdminRouteRouteChildren: AdminRouteRouteChildren = {
+  AdminPeopleRoute: AdminPeopleRoute,
+  AdminToursRoute: AdminToursRoute,
+  AdminIndexRoute: AdminIndexRoute,
+}
+
+const AdminRouteRouteWithChildren = AdminRouteRoute._addFileChildren(
+  AdminRouteRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AdminRouteRoute: AdminRouteRouteWithChildren,
   AntennaRoute: AntennaRoute,
   WelcomeRoute: WelcomeRoute,
 }
