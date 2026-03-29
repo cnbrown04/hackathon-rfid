@@ -7,12 +7,20 @@ export const Route = createFileRoute("/")({ component: Home });
 function Home() {
 	return (
 		<main className="relative flex min-h-[100dvh] flex-col items-center justify-center gap-10 px-6 py-12 md:gap-14 md:px-16 lg:gap-16 lg:px-24">
-			<Link
-				to="/admin/people"
-				className="fixed top-4 right-4 z-10 rounded-md px-2 py-1.5 text-xs font-medium uppercase tracking-wider text-muted-foreground/25 transition-colors hover:text-muted-foreground/65 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 md:top-5 md:right-5"
-			>
-				Admin
-			</Link>
+			<div className="fixed top-4 right-4 z-10 flex flex-row items-center gap-4 md:top-5 md:right-5">
+				<Link
+					to="/admin/people"
+					className="rounded-md px-2 py-1.5 text-xs font-medium uppercase tracking-wider text-muted-foreground/25 transition-colors hover:text-muted-foreground/65 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+				>
+					Admin
+				</Link>
+				<Link
+					to="/ambassador"
+					className="rounded-md px-2 py-1.5 text-xs font-medium uppercase tracking-wider text-muted-foreground/70 transition-colors hover:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+				>
+					Ambassador
+				</Link>
+			</div>
 			<h1 className="w-full max-w-5xl text-center text-5xl font-medium tracking-tight text-foreground sm:text-6xl md:text-7xl lg:text-8xl lg:leading-[1.05]">
 				<RfidLabHeadingLine />
 			</h1>

@@ -115,6 +115,8 @@ function Welcome() {
 	);
 	const [legacyUsers, setLegacyUsers] = useState<WelcomeUser[]>([]);
 	const rosterActiveRef = useRef(false);
+	/** Tracks which tour roster is live so repeat `tour_roster` for the same tour merges arrivals instead of wiping. */
+	const activeTourIdRef = useRef<string | null>(null);
 	const seenLegacyEpc = useRef(new Set<string>());
 	const prevRosterArrivalKeysRef = useRef<Set<string>>(new Set());
 	const lastTourIdRef = useRef<string | null>(null);
@@ -124,14 +126,27 @@ function Welcome() {
 		const disconnect = connectWelcomeSocket({
 			onTourRoster: (payload) => {
 				rosterActiveRef.current = true;
+				const sameTour =
+					activeTourIdRef.current !== null &&
+					activeTourIdRef.current === payload.tour_id;
+				activeTourIdRef.current = payload.tour_id;
 				setRoster(payload);
 				const scannedAt =
 					payload.scanned_at && payload.scanned_at.length > 0
 						? payload.scanned_at
 						: new Date().toISOString();
-				setArrivalTimes(new Map([[payload.scanned_epc, scannedAt]]));
-				setLegacyUsers([]);
-				seenLegacyEpc.current = new Set();
+				setArrivalTimes((prev) => {
+					if (sameTour) {
+						const next = new Map(prev);
+						next.set(payload.scanned_epc, scannedAt);
+						return next;
+					}
+					return new Map([[payload.scanned_epc, scannedAt]]);
+				});
+				if (!sameTour) {
+					setLegacyUsers([]);
+					seenLegacyEpc.current = new Set();
+				}
 			},
 			onWelcome: (user) => {
 				if (rosterActiveRef.current) {
@@ -148,6 +163,7 @@ function Welcome() {
 			},
 			onWelcomeClear: () => {
 				rosterActiveRef.current = false;
+				activeTourIdRef.current = null;
 				setRoster(null);
 				setLegacyUsers([]);
 				setArrivalTimes(new Map());

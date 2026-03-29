@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as WelcomeRouteImport } from './routes/welcome'
 import { Route as LidarRouteImport } from './routes/lidar'
 import { Route as AntennaRouteImport } from './routes/antenna'
+import { Route as AmbassadorRouteImport } from './routes/ambassador'
 import { Route as AdminRouteRouteImport } from './routes/admin/route'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AdminIndexRouteImport } from './routes/admin/index'
@@ -34,6 +35,11 @@ const LidarRoute = LidarRouteImport.update({
 const AntennaRoute = AntennaRouteImport.update({
   id: '/antenna',
   path: '/antenna',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AmbassadorRoute = AmbassadorRouteImport.update({
+  id: '/ambassador',
+  path: '/ambassador',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminRouteRoute = AdminRouteRouteImport.update({
@@ -80,6 +86,7 @@ const AdminApiRoute = AdminApiRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/admin': typeof AdminRouteRouteWithChildren
+  '/ambassador': typeof AmbassadorRoute
   '/antenna': typeof AntennaRoute
   '/lidar': typeof LidarRoute
   '/welcome': typeof WelcomeRoute
@@ -92,6 +99,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/ambassador': typeof AmbassadorRoute
   '/antenna': typeof AntennaRoute
   '/lidar': typeof LidarRoute
   '/welcome': typeof WelcomeRoute
@@ -106,6 +114,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/admin': typeof AdminRouteRouteWithChildren
+  '/ambassador': typeof AmbassadorRoute
   '/antenna': typeof AntennaRoute
   '/lidar': typeof LidarRoute
   '/welcome': typeof WelcomeRoute
@@ -121,6 +130,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/admin'
+    | '/ambassador'
     | '/antenna'
     | '/lidar'
     | '/welcome'
@@ -133,6 +143,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/ambassador'
     | '/antenna'
     | '/lidar'
     | '/welcome'
@@ -146,6 +157,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/admin'
+    | '/ambassador'
     | '/antenna'
     | '/lidar'
     | '/welcome'
@@ -160,6 +172,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AdminRouteRoute: typeof AdminRouteRouteWithChildren
+  AmbassadorRoute: typeof AmbassadorRoute
   AntennaRoute: typeof AntennaRoute
   LidarRoute: typeof LidarRoute
   WelcomeRoute: typeof WelcomeRoute
@@ -186,6 +199,13 @@ declare module '@tanstack/react-router' {
       path: '/antenna'
       fullPath: '/antenna'
       preLoaderRoute: typeof AntennaRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/ambassador': {
+      id: '/ambassador'
+      path: '/ambassador'
+      fullPath: '/ambassador'
+      preLoaderRoute: typeof AmbassadorRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin': {
@@ -272,6 +292,7 @@ const AdminRouteRouteWithChildren = AdminRouteRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AdminRouteRoute: AdminRouteRouteWithChildren,
+  AmbassadorRoute: AmbassadorRoute,
   AntennaRoute: AntennaRoute,
   LidarRoute: LidarRoute,
   WelcomeRoute: WelcomeRoute,

@@ -228,6 +228,8 @@ export async function simulateTourEvent(body: {
 	event_type?: string;
 	site_id?: string;
 	antenna_id?: number;
+	/** When set for an ambassador, that tour’s roster is pushed to /welcome (must match tours.ambassador_id). */
+	tour_id?: string | null;
 }): Promise<Record<string, unknown>> {
 	const r = await fetch(`${API_BASE}/api/admin/simulate-tour-event`, {
 		method: "POST",

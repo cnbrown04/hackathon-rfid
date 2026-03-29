@@ -148,6 +148,12 @@ function AdminLayout() {
 						<NavLink to="/admin/lidar-items">LiDAR items</NavLink>
 						<Separator orientation="vertical" className="h-4 shrink-0" />
 						<NavLink to="/admin/simulate">Simulate</NavLink>
+						<Link
+							to="/ambassador"
+							className="text-muted-foreground transition-colors hover:text-foreground"
+						>
+							Ambassador (iPad)
+						</Link>
 						<NavLink to="/admin/api">API</NavLink>
 					</nav>
 					<div className="flex shrink-0 flex-wrap items-center gap-2">

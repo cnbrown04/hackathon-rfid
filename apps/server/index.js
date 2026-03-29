@@ -122,10 +122,15 @@ async function nearestTourForAmbassador(ambassadorId) {
 }
 
 /**
- * tour_id stored on tour_event: ambassador → nearest tour by start_time; visitor → people.tour_id.
+ * tour_id stored on tour_event: ambassador → optional explicit tour_id (iPad / admin), else nearest by start_time; visitor → people.tour_id.
+ * @param {{ id: number, role: string, tour_id?: string | null }} person
+ * @param {string | null | undefined} optionalTourId — must already be validated for ambassadors when provided
  */
-async function resolveTourIdForSimulatedEvent(person) {
+async function resolveTourIdForSimulatedEvent(person, optionalTourId) {
   if (person.role === "ambassador") {
+    if (optionalTourId) {
+      return optionalTourId;
+    }
     const tour = await nearestTourForAmbassador(person.id);
     return tour ? tour.id : null;
   }
@@ -141,7 +146,10 @@ async function dispatchTourEventFromNotify(row) {
 
   if (row.reader_id === "reader-2" && row.epc) {
     try {
-      await broadcastWelcomeForEpc(row.epc);
+      await broadcastWelcomeForEpc(row.epc, {
+        tour_id: row.tour_id ?? null,
+        reader_id: row.reader_id,
+      });
     } catch (err) {
       console.error("Welcome lookup error:", err);
     }
@@ -149,10 +157,13 @@ async function dispatchTourEventFromNotify(row) {
 }
 
 /**
- * Looks up EPC; ambassadors with a timed tour broadcast tour_roster (nearest start_time to now),
- * otherwise a normal welcome message.
+ * Looks up EPC; ambassadors with a timed tour broadcast tour_roster.
+ * Uses event row's tour_id when set (explicit pick / resolved insert); otherwise nearest start_time to now.
  */
-async function broadcastWelcomeForEpc(epc) {
+async function broadcastWelcomeForEpc(epc, options = {}) {
+  const explicitTourId = options.tour_id ?? null;
+  const readerId = options.reader_id ?? "reader-2";
+
   const result = await pool.query(
     "SELECT *, role::text AS role FROM people WHERE epc = $1",
     [epc]
@@ -164,10 +175,26 @@ async function broadcastWelcomeForEpc(epc) {
   const person = result.rows[0];
 
   if (person.role === "ambassador") {
-    const tour = await nearestTourForAmbassador(person.id);
+    let tour = null;
+    if (explicitTourId) {
+      const tr = await pool.query(
+        `SELECT id, company, logo, ambassador_id, start_time, created_at
+         FROM tours
+         WHERE id = $1::uuid AND ambassador_id = $2`,
+        [explicitTourId, person.id]
+      );
+      tour = tr.rows.length > 0 ? tr.rows[0] : null;
+    }
+    if (!tour) {
+      tour = await nearestTourForAmbassador(person.id);
+    }
 
     if (!tour) {
-      broadcast({ type: "welcome", data: welcomePayloadFromRow(person) });
+      broadcast({
+        type: "welcome",
+        reader_id: readerId,
+        data: welcomePayloadFromRow(person),
+      });
       return true;
     }
 
@@ -192,6 +219,7 @@ async function broadcastWelcomeForEpc(epc) {
 
     broadcast({
       type: "tour_roster",
+      reader_id: readerId,
       data: {
         tour_id: tour.id,
         company: tour.company,
@@ -207,7 +235,11 @@ async function broadcastWelcomeForEpc(epc) {
     return true;
   }
 
-  broadcast({ type: "welcome", data: welcomePayloadFromRow(person) });
+  broadcast({
+    type: "welcome",
+    reader_id: readerId,
+    data: welcomePayloadFromRow(person),
+  });
   return true;
 }
 
@@ -825,7 +857,28 @@ const httpServer = http.createServer(async (req, res) => {
             personRow = pr.rows[0];
           }
           const epc = personRow.epc;
-          const resolvedTourId = await resolveTourIdForSimulatedEvent(personRow);
+          const optionalTourId =
+            typeof body.tour_id === "string" && body.tour_id.trim() !== ""
+              ? body.tour_id.trim()
+              : null;
+
+          if (optionalTourId && personRow.role === "ambassador") {
+            const checkTour = await pool.query(
+              `SELECT id FROM tours WHERE id = $1::uuid AND ambassador_id = $2`,
+              [optionalTourId, personRow.id]
+            );
+            if (checkTour.rows.length === 0) {
+              json(res, 400, {
+                error: "tour_id must be a tour assigned to this ambassador",
+              });
+              return;
+            }
+          }
+
+          const resolvedTourId = await resolveTourIdForSimulatedEvent(
+            personRow,
+            optionalTourId
+          );
           const fake = buildFakeTourEventBody(epc, {
             reader_id: body.reader_id,
             event_type: body.event_type,

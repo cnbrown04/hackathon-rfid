@@ -34,6 +34,17 @@ export type WelcomeSocketHandlers = {
 	onWelcomeClear?: () => void;
 };
 
+/** Welcome kiosk UI only reacts to the welcome reader (reader-2), not LiDAR or other readers. */
+function isWelcomeReaderMessage(msg: {
+	reader_id?: string | null;
+	type?: string;
+}): boolean {
+	if (msg.reader_id == null) {
+		return true;
+	}
+	return msg.reader_id === "reader-2";
+}
+
 export function connectWelcomeSocket(handlers: WelcomeSocketHandlers) {
 	let ws: WebSocket;
 
@@ -41,10 +52,20 @@ export function connectWelcomeSocket(handlers: WelcomeSocketHandlers) {
 		ws = new WebSocket(viteWsUrl());
 
 		ws.onmessage = (event) => {
-			const msg = JSON.parse(event.data);
+			const msg = JSON.parse(event.data) as {
+				type: string;
+				reader_id?: string | null;
+				data?: unknown;
+			};
 			if (msg.type === "welcome") {
+				if (!isWelcomeReaderMessage(msg)) {
+					return;
+				}
 				handlers.onWelcome(msg.data as WelcomeUser);
 			} else if (msg.type === "tour_roster" && handlers.onTourRoster) {
+				if (!isWelcomeReaderMessage(msg)) {
+					return;
+				}
 				handlers.onTourRoster(msg.data as TourRosterPayload);
 			} else if (msg.type === "welcome_clear" && handlers.onWelcomeClear) {
 				handlers.onWelcomeClear();
