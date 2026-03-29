@@ -200,6 +200,28 @@ const httpServer = http.createServer(async (req, res) => {
 
   const pathname = new URL(req.url, "http://localhost").pathname;
 
+  // GET /api/epc-tour-map — EPC → tour UUID from people (for RFID host aggregator on startup)
+  if (req.method === "GET" && pathname === "/api/epc-tour-map") {
+    try {
+      const result = await pool.query(
+        `SELECT epc, tour_id::text AS tour_id
+         FROM people
+         WHERE tour_id IS NOT NULL
+         ORDER BY epc ASC`
+      );
+      const lines = result.rows.map((row) => `${row.epc},${row.tour_id}`);
+      res.writeHead(200, {
+        "Content-Type": "text/csv; charset=utf-8",
+        "Cache-Control": "no-store",
+      });
+      res.end(lines.join("\n") + (lines.length > 0 ? "\n" : ""));
+    } catch (err) {
+      console.error("epc-tour-map query:", err);
+      json(res, 500, { error: "Database error" });
+    }
+    return;
+  }
+
   // POST /api/admin/login — verify password (no Bearer required)
   if (req.method === "POST" && pathname === "/api/admin/login") {
     readJsonBody(req)

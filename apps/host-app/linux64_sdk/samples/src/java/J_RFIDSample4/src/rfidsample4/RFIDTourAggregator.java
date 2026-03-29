@@ -28,6 +28,7 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileReader;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -39,6 +40,8 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -82,7 +85,7 @@ public class RFIDTourAggregator {
 
     private void start(AppConfig cfg) throws Exception {
         this.config = cfg;
-        loadEpcTourMap(cfg.epcMapCsv, cfg.defaultTourId);
+        loadEpcTourMap(cfg.epcMapUrl, cfg.epcMapCsv, cfg.defaultTourId);
 
         if (epcToTour.isEmpty()) {
             throw new IllegalStateException("No EPC mappings available. Provide CSV or fallback EPCs.");
@@ -507,8 +510,18 @@ public class RFIDTourAggregator {
         return token.replace('+', '_').replace('#', '_').replace('/', '_');
     }
 
-    private void loadEpcTourMap(String csvPath, String defaultTourId) throws IOException {
+    private void loadEpcTourMap(String mapUrl, String csvPath, String defaultTourId) throws IOException {
         epcToTour.clear();
+
+        if (mapUrl != null && mapUrl.trim().length() > 0) {
+            try {
+                loadEpcTourMapFromHttp(mapUrl.trim());
+                System.out.println(
+                        "Loaded EPC map from URL " + mapUrl.trim() + " (" + epcToTour.size() + " entries)");
+            } catch (IOException ex) {
+                System.err.println("Warning: could not load EPC map from URL: " + ex.getMessage());
+            }
+        }
 
         if (csvPath != null && csvPath.length() > 0) {
             File f = new File(csvPath);
@@ -516,23 +529,8 @@ public class RFIDTourAggregator {
                 BufferedReader br = null;
                 try {
                     br = new BufferedReader(new FileReader(f));
-                    String line;
-                    while ((line = br.readLine()) != null) {
-                        line = line.trim();
-                        if (line.length() == 0 || line.startsWith("#")) {
-                            continue;
-                        }
-                        String[] parts = line.split(",");
-                        if (parts.length < 2) {
-                            continue;
-                        }
-                        String epc = normalizeEpc(parts[0]);
-                        String tourId = parts[1].trim();
-                        if (epc.length() == 0 || tourId.length() == 0) {
-                            continue;
-                        }
-                        epcToTour.put(epc, tourId);
-                    }
+                    int added = loadEpcTourMapFromReader(br);
+                    System.out.println("Loaded EPC map from CSV " + csvPath + " (" + added + " entries)");
                 } finally {
                     if (br != null) {
                         br.close();
@@ -547,6 +545,62 @@ public class RFIDTourAggregator {
             }
             System.out.println("Using fallback EPC map with default tour_id=" + defaultTourId);
         }
+    }
+
+    private void loadEpcTourMapFromHttp(String urlString) throws IOException {
+        HttpURLConnection conn = null;
+        BufferedReader br = null;
+        try {
+            URL url = new URL(urlString);
+            conn = (HttpURLConnection) url.openConnection();
+            conn.setConnectTimeout(15000);
+            conn.setReadTimeout(60000);
+            conn.setRequestMethod("GET");
+            int code = conn.getResponseCode();
+            if (code != 200) {
+                throw new IOException("HTTP status " + code);
+            }
+            br = new BufferedReader(new InputStreamReader(conn.getInputStream(), "UTF-8"));
+            loadEpcTourMapFromReader(br);
+        } finally {
+            if (br != null) {
+                try {
+                    br.close();
+                } catch (IOException ioe) {
+                }
+            }
+            if (conn != null) {
+                conn.disconnect();
+            }
+        }
+    }
+
+    /**
+     * Parses CSV lines: EPC,TOUR_ID (same format as tour-epc-map.csv). Merges into {@link #epcToTour}.
+     *
+     * @return number of new or updated mappings
+     */
+    private int loadEpcTourMapFromReader(BufferedReader br) throws IOException {
+        int n = 0;
+        String line;
+        while ((line = br.readLine()) != null) {
+            line = line.trim();
+            if (line.length() == 0 || line.startsWith("#")) {
+                continue;
+            }
+            String[] parts = line.split(",");
+            if (parts.length < 2) {
+                continue;
+            }
+            String epc = normalizeEpc(parts[0]);
+            String tourId = parts[1].trim();
+            if (epc.length() == 0 || tourId.length() == 0) {
+                continue;
+            }
+            epcToTour.put(epc, tourId);
+            n++;
+        }
+        return n;
     }
 
     private String findCommonHexPrefix(Iterable<String> epcs) {
@@ -867,6 +921,7 @@ public class RFIDTourAggregator {
     private static class AppConfig {
         private String host;
         private int port;
+        private String epcMapUrl;
         private String epcMapCsv;
         private String defaultTourId;
         private long runMs;
@@ -923,6 +978,7 @@ public class RFIDTourAggregator {
             cfg.port = Integer.parseInt(args[1]);
             cfg.mqttBrokerUrl = args[2];
             cfg.mqttTopicRoot = args[3];
+            cfg.epcMapUrl = "";
             cfg.epcMapCsv = args[4];
 
             cfg.defaultTourId = args.length > 5 ? args[5] : "tour-default";
@@ -968,7 +1024,8 @@ public class RFIDTourAggregator {
             cfg.port = parseInt(getOptional(props, "port", "5084"));
             cfg.mqttBrokerUrl = getRequired(props, "mqtt.brokerUrl");
             cfg.mqttTopicRoot = getOptional(props, "mqtt.topicRoot", "rfid");
-            cfg.epcMapCsv = getRequired(props, "epc.mapCsv");
+            cfg.epcMapUrl = getOptional(props, "epc.mapUrl", "");
+            cfg.epcMapCsv = getOptional(props, "epc.mapCsv", "");
             cfg.defaultTourId = getOptional(props, "defaultTourId", "tour-default");
             cfg.runMs = parseLong(getOptional(props, "runMs", "0"));
 
@@ -1076,7 +1133,8 @@ public class RFIDTourAggregator {
             System.err.println("Config mode: RFIDTourAggregator --config /path/to/tour-aggregator.properties");
             System.err.println("  Exact EPC matching only. Unknown EPCs are ignored.");
             System.err.println("  CSV format: EPC,TOUR_ID");
-            System.err.println("  If CSV is missing/empty, built-in fallback EPCs are used.");
+            System.err.println(
+                    "  Config: epc.mapUrl (HTTP GET, same CSV body) then epc.mapCsv; if still empty, fallback EPCs.");
             System.err.println("  LOG_READS/LOG_UNKNOWN_READS accepted true|false|1|0|yes|no.");
         }
     }
