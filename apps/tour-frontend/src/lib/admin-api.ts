@@ -177,6 +177,15 @@ export async function simulateTourEvent(body: {
 	return r.json() as Promise<Record<string, unknown>>;
 }
 
+/** Broadcasts to all open welcome WebSocket clients; each /welcome view returns to the waiting state. */
+export async function clearWelcomeScreens(): Promise<void> {
+	const r = await fetch(`${API_BASE}/api/admin/clear-welcome-screens`, {
+		method: "POST",
+		headers: authHeaders(),
+	});
+	if (!r.ok) throw new Error(await parseError(r));
+}
+
 export type TourEventListRow = {
 	id: number;
 	event_id: string;

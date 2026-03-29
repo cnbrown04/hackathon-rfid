@@ -1,3 +1,4 @@
+import { useRouterState } from "@tanstack/react-router";
 import { Monitor, Moon, Sun } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "#/components/ui/button";
@@ -43,12 +44,28 @@ function readStoredMode(): ThemeMode {
 	return "auto";
 }
 
+function isWelcomeRoute(pathname: string): boolean {
+	return pathname === "/welcome" || pathname.startsWith("/welcome/");
+}
+
 export function ThemeToggle() {
+	const pathname = useRouterState({ select: (s) => s.location.pathname });
 	const [mode, setMode] = useState<ThemeMode>("auto");
+	const [fullscreen, setFullscreen] = useState(false);
 
 	useEffect(() => {
 		setMode(readStoredMode());
 	}, []);
+
+	useEffect(() => {
+		const sync = () => setFullscreen(Boolean(document.fullscreenElement));
+		sync();
+		document.addEventListener("fullscreenchange", sync);
+		return () => document.removeEventListener("fullscreenchange", sync);
+	}, []);
+
+	const hideOnWelcomeFullscreen =
+		isWelcomeRoute(pathname) && fullscreen;
 
 	useEffect(() => {
 		if (mode !== "auto") return;
@@ -72,6 +89,10 @@ export function ThemeToggle() {
 				: "Theme: Dark";
 
 	const Icon = mode === "auto" ? Monitor : mode === "light" ? Sun : Moon;
+
+	if (hideOnWelcomeFullscreen) {
+		return null;
+	}
 
 	return (
 		<div className="fixed top-4 right-4 z-50">

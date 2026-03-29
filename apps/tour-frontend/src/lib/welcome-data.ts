@@ -30,6 +30,8 @@ export type TourRosterPayload = {
 export type WelcomeSocketHandlers = {
 	onWelcome: (user: WelcomeUser) => void;
 	onTourRoster?: (payload: TourRosterPayload) => void;
+	/** Admin broadcast: reset all welcome UI to the waiting state. */
+	onWelcomeClear?: () => void;
 };
 
 export function connectWelcomeSocket(handlers: WelcomeSocketHandlers) {
@@ -44,6 +46,8 @@ export function connectWelcomeSocket(handlers: WelcomeSocketHandlers) {
 				handlers.onWelcome(msg.data as WelcomeUser);
 			} else if (msg.type === "tour_roster" && handlers.onTourRoster) {
 				handlers.onTourRoster(msg.data as TourRosterPayload);
+			} else if (msg.type === "welcome_clear" && handlers.onWelcomeClear) {
+				handlers.onWelcomeClear();
 			}
 		};
 

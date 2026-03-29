@@ -677,6 +677,13 @@ const httpServer = http.createServer(async (req, res) => {
       }
     }
 
+    // POST /api/admin/clear-welcome-screens — broadcast to all WebSocket clients (welcome page resets UI)
+    if (segments[0] === "clear-welcome-screens" && req.method === "POST" && segments.length === 1) {
+      broadcast({ type: "welcome_clear" });
+      json(res, 200, { ok: true });
+      return;
+    }
+
     // POST /api/admin/simulate-tour-event — DB insert only; NOTIFY/LISTEN drives WebSocket (same as POST /event)
     if (segments[0] === "simulate-tour-event" && req.method === "POST" && segments.length === 1) {
       readJsonBody(req)

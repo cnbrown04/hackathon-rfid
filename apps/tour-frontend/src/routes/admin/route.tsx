@@ -10,10 +10,22 @@ import { Input } from "#/components/ui/input";
 import { Label } from "#/components/ui/label";
 import {
 	clearAdminSecret,
+	clearWelcomeScreens,
 	getAdminSecret,
 	login,
 	setAdminSecret,
 } from "#/lib/admin-api";
+import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+	AlertDialogTrigger,
+} from "#/components/ui/alert-dialog";
 
 export const Route = createFileRoute("/admin")({
 	// Matches client-only admin data routes (Bearer token in sessionStorage).
@@ -49,6 +61,8 @@ function AdminLayout() {
 	const [loggedIn, setLoggedIn] = useState(false);
 	const [password, setPassword] = useState("");
 	const [error, setError] = useState<string | null>(null);
+	const [clearBusy, setClearBusy] = useState(false);
+	const [clearFeedback, setClearFeedback] = useState<string | null>(null);
 
 	useEffect(() => {
 		setLoggedIn(!!getAdminSecret());
@@ -71,6 +85,21 @@ function AdminLayout() {
 	function logout() {
 		clearAdminSecret();
 		setLoggedIn(false);
+	}
+
+	async function onClearWelcomeScreens() {
+		setClearFeedback(null);
+		setClearBusy(true);
+		try {
+			await clearWelcomeScreens();
+			setClearFeedback("Welcome screens cleared.");
+		} catch (e) {
+			setClearFeedback(
+				e instanceof Error ? e.message : "Could not clear welcome screens.",
+			);
+		} finally {
+			setClearBusy(false);
+		}
 	}
 
 	if (!ready) {
@@ -113,15 +142,59 @@ function AdminLayout() {
 						<NavLink to="/admin/simulate">Simulate</NavLink>
 						<NavLink to="/admin/api">API</NavLink>
 					</nav>
-					<Button
-						type="button"
-						className="shrink-0"
-						variant="outline"
-						size="sm"
-						onClick={logout}
-					>
-						Log out
-					</Button>
+					<div className="flex shrink-0 flex-wrap items-center gap-2">
+						<AlertDialog>
+							<AlertDialogTrigger asChild>
+								<Button
+									type="button"
+									variant="outline"
+									size="sm"
+									disabled={clearBusy}
+								>
+									Clear welcome screens
+								</Button>
+							</AlertDialogTrigger>
+							<AlertDialogContent>
+								<AlertDialogHeader>
+									<AlertDialogTitle>Clear all welcome screens?</AlertDialogTitle>
+									<AlertDialogDescription>
+										This sends a reset to every browser on{" "}
+										<code className="text-foreground">/welcome</code> (kiosk
+										displays). Everyone will see the waiting state again.
+									</AlertDialogDescription>
+								</AlertDialogHeader>
+								<AlertDialogFooter>
+									<AlertDialogCancel>Cancel</AlertDialogCancel>
+									<AlertDialogAction
+										onClick={() => {
+											void onClearWelcomeScreens();
+										}}
+									>
+										Clear everyone
+									</AlertDialogAction>
+								</AlertDialogFooter>
+							</AlertDialogContent>
+						</AlertDialog>
+						{clearFeedback ? (
+							<span
+								className={
+									clearFeedback.startsWith("Welcome")
+										? "text-sm text-muted-foreground"
+										: "text-sm text-destructive"
+								}
+							>
+								{clearFeedback}
+							</span>
+						) : null}
+						<Button
+							type="button"
+							variant="outline"
+							size="sm"
+							onClick={logout}
+						>
+							Log out
+						</Button>
+					</div>
 				</div>
 			</header>
 			<div className="mx-auto flex w-full min-w-0 max-w-6xl flex-1 flex-col px-4 py-8 sm:px-6 sm:py-10 lg:max-w-7xl lg:px-8">

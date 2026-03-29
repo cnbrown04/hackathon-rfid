@@ -356,6 +356,29 @@ paths:
         "500":
           $ref: "#/components/responses/JsonError"
 
+  /api/admin/clear-welcome-screens:
+    post:
+      tags: [Admin]
+      summary: Reset all /welcome kiosk displays
+      description: |
+        Broadcasts `{ "type": "welcome_clear" }` to every connected WebSocket client.
+        Each `/welcome` page clears roster/cards and returns to the waiting state.
+      security: [AdminBearer: []]
+      operationId: clearWelcomeScreens
+      responses:
+        "200":
+          description: Broadcast sent
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    example: true
+        "401":
+          $ref: "#/components/responses/JsonError"
+
   /api/admin/simulate-tour-event:
     post:
       tags: [Admin]

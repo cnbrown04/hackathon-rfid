@@ -73,6 +73,13 @@ function Welcome() {
 				seenLegacyEpc.current.add(user.epc);
 				setLegacyUsers((prev) => [...prev, user]);
 			},
+			onWelcomeClear: () => {
+				rosterActiveRef.current = false;
+				setRoster(null);
+				setLegacyUsers([]);
+				setArrivalTimes(new Map());
+				seenLegacyEpc.current = new Set();
+			},
 		});
 		return disconnect;
 	}, []);
