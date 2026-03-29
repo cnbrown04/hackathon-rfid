@@ -342,7 +342,13 @@ public class RFIDTourAggregator {
                 RollingAggregation prior = aggregations.putIfAbsent(key, created);
                 agg = prior == null ? created : prior;
             }
-            agg.record(epc, rssi, nowSec, config.windowSeconds);
+            RecordResult recordResult = agg.record(epc, rssi, nowSec, config.windowSeconds);
+            if (recordResult.firstReadForPresence) {
+                Evaluation firstSeenEval =
+                        agg.evaluate(nowSec, config.windowSeconds, Integer.MAX_VALUE, config.minDwellSeconds);
+                firstSeenEval.secondsSinceLastRead = 0L;
+                publishEvent(key, firstSeenEval, "TOUR_GROUP_SEEN");
+            }
         }
 
         if (config.logReads && mappedReads == 0 && ignoredReads > 0) {
@@ -366,7 +372,7 @@ public class RFIDTourAggregator {
                         config.minDwellSeconds);
 
                 if (eval.shouldEmit) {
-                    publishEvent(key, eval);
+                    publishEvent(key, eval, "TOUR_GROUP_DEPARTING");
                 }
 
                 if (eval.isIdle) {
@@ -378,7 +384,7 @@ public class RFIDTourAggregator {
         }
     }
 
-    private void publishEvent(AggregationKey key, Evaluation eval) {
+    private void publishEvent(AggregationKey key, Evaluation eval, String eventType) {
         try {
             ensureMqttConnected();
             String topic =
@@ -393,7 +399,7 @@ public class RFIDTourAggregator {
                             + sanitizeTopicToken(key.tourId)
                             + "/transition";
 
-            String payload = toJsonPayload(key, eval);
+            String payload = toJsonPayload(key, eval, eventType);
             MqttMessage message = new MqttMessage(payload.getBytes("UTF-8"));
             message.setQos(1);
             message.setRetained(false);
@@ -412,11 +418,11 @@ public class RFIDTourAggregator {
         connectMqtt();
     }
 
-    private String toJsonPayload(AggregationKey key, Evaluation eval) {
+    private String toJsonPayload(AggregationKey key, Evaluation eval, String eventType) {
         StringBuilder sb = new StringBuilder(512);
         sb.append('{');
         appendJsonField(sb, "event_id", UUID.randomUUID().toString(), true);
-        appendJsonField(sb, "event_type", "TOUR_GROUP_DEPARTING", true);
+        appendJsonField(sb, "event_type", eventType, true);
         appendJsonField(sb, "event_ts", String.valueOf(System.currentTimeMillis()), true);
         appendJsonField(sb, "site_id", key.siteId, true);
         appendJsonField(sb, "reader_id", key.readerId, true);
@@ -721,6 +727,10 @@ public class RFIDTourAggregator {
         private long minDwellSeconds;
     }
 
+    private static class RecordResult {
+        private boolean firstReadForPresence;
+    }
+
     private static class RollingAggregation {
         private final LinkedList<Bucket> buckets = new LinkedList<Bucket>();
         private final Map<String, Long> tagLastSeenSec = new HashMap<String, Long>();
@@ -729,10 +739,18 @@ public class RFIDTourAggregator {
         private boolean emittedForCurrentIdle;
         private long firstSeenSec = -1L;
 
-        public synchronized void record(String epc, int rssi, long nowSec, int windowSeconds) {
+        public synchronized RecordResult record(String epc, int rssi, long nowSec, int windowSeconds) {
+            RecordResult result = new RecordResult();
             pruneOld(nowSec, windowSeconds);
-            if (firstSeenSec < 0L) {
+
+            boolean startsNewPresence = firstSeenSec < 0L || emittedForCurrentIdle;
+            if (startsNewPresence) {
+                if (emittedForCurrentIdle) {
+                    buckets.clear();
+                    tagLastSeenSec.clear();
+                }
                 firstSeenSec = nowSec;
+                result.firstReadForPresence = true;
             }
 
             Bucket bucket;
@@ -747,6 +765,7 @@ public class RFIDTourAggregator {
             bucket.rssiSum += rssi;
             tagLastSeenSec.put(epc, new Long(nowSec));
             emittedForCurrentIdle = false;
+            return result;
         }
 
         public synchronized Evaluation evaluate(
