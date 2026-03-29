@@ -249,6 +249,7 @@ function welcomePayloadFromRow(person) {
     photo_url: person.photo_url,
     epc: person.epc,
     arrived_at: new Date().toISOString(),
+    role: person.role,
   };
 }
 
@@ -1290,6 +1291,25 @@ const httpServer = http.createServer(async (req, res) => {
     if (segments[0] === "clear-welcome-screens" && req.method === "POST" && segments.length === 1) {
       broadcast({ type: "welcome_clear" });
       json(res, 200, { ok: true });
+      return;
+    }
+
+    // POST /api/admin/show-conclusion-on-welcome — all /welcome kiosks navigate to thank-you (optional tour_id for deep link)
+    if (segments[0] === "show-conclusion-on-welcome" && req.method === "POST" && segments.length === 1) {
+      readJsonBody(req)
+        .then((body) => {
+          const tid =
+            body.tour_id != null && String(body.tour_id).trim() !== ""
+              ? String(body.tour_id).trim()
+              : null;
+          if (tid !== null && !isUuidString(tid)) {
+            json(res, 400, { error: "tour_id must be a valid UUID when provided" });
+            return;
+          }
+          broadcast({ type: "welcome_show_conclusion", data: { tour_id: tid } });
+          json(res, 200, { ok: true });
+        })
+        .catch(() => json(res, 400, { error: "Invalid JSON" }));
       return;
     }
 

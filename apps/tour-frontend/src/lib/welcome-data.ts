@@ -12,6 +12,8 @@ export type WelcomeUser = {
 	title: string | null;
 	photo_url: string | null;
 	arrived_at: string;
+	/** From server; used to allow ambassador scan before visitor cards appear. */
+	role?: "visitor" | "ambassador";
 };
 
 export type TourRosterPayload = {
@@ -32,6 +34,8 @@ export type WelcomeSocketHandlers = {
 	onTourRoster?: (payload: TourRosterPayload) => void;
 	/** Admin broadcast: reset all welcome UI to the waiting state. */
 	onWelcomeClear?: () => void;
+	/** Ambassador iPad: navigate all /welcome kiosks to the thank-you page. */
+	onWelcomeShowConclusion?: (data: { tour_id: string | null }) => void;
 };
 
 /** Welcome kiosk: canonical `welcome`, legacy `reader-2` (still sent by some aggregators). */
@@ -69,6 +73,16 @@ export function connectWelcomeSocket(handlers: WelcomeSocketHandlers) {
 				handlers.onTourRoster(msg.data as TourRosterPayload);
 			} else if (msg.type === "welcome_clear" && handlers.onWelcomeClear) {
 				handlers.onWelcomeClear();
+			} else if (
+				msg.type === "welcome_show_conclusion" &&
+				handlers.onWelcomeShowConclusion
+			) {
+				const raw = msg.data as { tour_id?: string | null } | undefined;
+				const tourId =
+					raw?.tour_id != null && String(raw.tour_id).trim() !== ""
+						? String(raw.tour_id)
+						: null;
+				handlers.onWelcomeShowConclusion({ tour_id: tourId });
 			}
 		};
 

@@ -249,6 +249,21 @@ export async function clearWelcomeScreens(): Promise<void> {
 	if (!r.ok) throw new Error(await parseError(r));
 }
 
+/** All kiosks on /welcome navigate to the thank-you page (optional tour for deep link). */
+export async function showConclusionOnWelcomeScreens(
+	tourId?: string | null,
+): Promise<void> {
+	const r = await fetch(`${API_BASE}/api/admin/show-conclusion-on-welcome`, {
+		method: "POST",
+		headers: authHeaders(),
+		body: JSON.stringify({
+			tour_id:
+				tourId != null && String(tourId).trim() !== "" ? tourId : null,
+		}),
+	});
+	if (!r.ok) throw new Error(await parseError(r));
+}
+
 export type TourEventListRow = {
 	id: number;
 	event_id: string;

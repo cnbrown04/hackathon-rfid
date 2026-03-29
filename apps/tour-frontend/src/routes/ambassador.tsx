@@ -13,6 +13,7 @@ import {
 	clearWelcomeScreens,
 	clearAdminSecret,
 	getAdminSecret,
+	showConclusionOnWelcomeScreens,
 	loadAdminListData,
 	login,
 	setAdminSecret,
@@ -228,13 +229,23 @@ function AmbassadorPage() {
 						</p>
 					</div>
 					<div className="flex flex-wrap items-center gap-2">
-						<Button type="button" variant="outline" size="sm" className="min-h-11" asChild>
-							<Link
-								to="/conclusion"
-								search={{ tour: selectedTourId }}
-							>
-								Thank you screen
-							</Link>
+						<Button
+							type="button"
+							variant="outline"
+							size="sm"
+							className="min-h-11"
+							disabled={busyAction !== null}
+							onClick={() =>
+								void runSimulate("thankYou", () =>
+									showConclusionOnWelcomeScreens(
+										selectedTourId || null,
+									),
+								)
+							}
+						>
+							{busyAction === "thankYou"
+								? "Sending…"
+								: "Show thank you on welcome screens"}
 						</Button>
 						<Button
 							type="button"

@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useReducedMotion } from "framer-motion";
 import { useEffect, useRef, useState } from "react";
 import { formatNameSingleLine } from "#/components/person-name";
@@ -109,6 +109,9 @@ export const Route = createFileRoute("/welcome")({
 });
 
 function Welcome() {
+	const navigate = useNavigate();
+	const [sessionOpened, setSessionOpened] = useState(false);
+	const sessionOpenedRef = useRef(false);
 	const [roster, setRoster] = useState<TourRosterPayload | null>(null);
 	const [arrivalTimes, setArrivalTimes] = useState<Map<string, string>>(
 		() => new Map(),
@@ -126,6 +129,8 @@ function Welcome() {
 		const disconnect = connectWelcomeSocket({
 			onTourRoster: (payload) => {
 				rosterActiveRef.current = true;
+				sessionOpenedRef.current = true;
+				setSessionOpened(true);
 				const sameTour =
 					activeTourIdRef.current !== null &&
 					activeTourIdRef.current === payload.tour_id;
@@ -149,6 +154,14 @@ function Welcome() {
 				}
 			},
 			onWelcome: (user) => {
+				const isAmbassador = user.role === "ambassador";
+				if (!sessionOpenedRef.current && !isAmbassador) {
+					return;
+				}
+				if (isAmbassador && !sessionOpenedRef.current) {
+					sessionOpenedRef.current = true;
+					setSessionOpened(true);
+				}
 				if (rosterActiveRef.current) {
 					setArrivalTimes((prev) => {
 						const next = new Map(prev);
@@ -157,21 +170,32 @@ function Welcome() {
 					});
 					return;
 				}
-				if (seenLegacyEpc.current.has(user.epc)) return;
-				seenLegacyEpc.current.add(user.epc);
-				setLegacyUsers((prev) => [...prev, user]);
+				if (sessionOpenedRef.current && !rosterActiveRef.current) {
+					if (user.role === "ambassador") return;
+					if (seenLegacyEpc.current.has(user.epc)) return;
+					seenLegacyEpc.current.add(user.epc);
+					setLegacyUsers((prev) => [...prev, user]);
+				}
 			},
 			onWelcomeClear: () => {
 				rosterActiveRef.current = false;
+				sessionOpenedRef.current = false;
+				setSessionOpened(false);
 				activeTourIdRef.current = null;
 				setRoster(null);
 				setLegacyUsers([]);
 				setArrivalTimes(new Map());
 				seenLegacyEpc.current = new Set();
 			},
+			onWelcomeShowConclusion: ({ tour_id }) => {
+				void navigate({
+					to: "/conclusion",
+					search: { tour: tour_id ?? "" },
+				});
+			},
 		});
 		return disconnect;
-	}, []);
+	}, [navigate]);
 
 	const hasRosterLayout = roster !== null;
 	const showRosterGrid = roster !== null && roster.people.length > 0;
@@ -229,7 +253,7 @@ function Welcome() {
 		prevRosterArrivalKeysRef.current = new Set();
 		prevLegacyEpcSetRef.current = new Set();
 	}, [showRosterGrid, showLegacy, roster, arrivalTimes, legacyUsers]);
-	const showWaiting = !hasRosterLayout && !showLegacy;
+	const showWaiting = !sessionOpened;
 
 	const cardsSection =
 		showRosterGrid || showLegacy ? (
