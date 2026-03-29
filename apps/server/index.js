@@ -170,6 +170,30 @@ async function start() {
         console.error("Welcome lookup error:", err);
       }
     }
+
+    // reader-3 is the lidar shelf reader — look up product and broadcast
+    if (event.reader_id === "reader-3" && event.epc) {
+      try {
+        const result = await pool.query(
+          "SELECT * FROM lidar_items WHERE epc = $1",
+          [event.epc]
+        );
+        if (result.rows.length > 0) {
+          const item = result.rows[0];
+          broadcast({
+            type: "lidar_scan",
+            data: {
+              epc: item.epc,
+              upc: item.upc,
+              item_url: item.item_url,
+              item_desc: item.item_desc,
+            },
+          });
+        }
+      } catch (err) {
+        console.error("Lidar lookup error:", err);
+      }
+    }
   });
 
   // 3. Accept WebSocket connections
