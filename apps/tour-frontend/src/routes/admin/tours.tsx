@@ -1,5 +1,5 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { useCallback, useEffect, useState } from "react";
+import { createFileRoute, useRouter } from "@tanstack/react-router";
+import { useState } from "react";
 import {
 	AlertDialog,
 	AlertDialogCancel,
@@ -30,16 +30,22 @@ import {
 import {
 	createTour,
 	deleteTour,
-	fetchPeople,
-	fetchTours,
+	loadAdminListData,
 	type PersonRow,
 	type TourRow,
 	updateTour,
 } from "#/lib/admin-api";
 
 export const Route = createFileRoute("/admin/tours")({
+	ssr: false,
+	beforeLoad: async () => loadAdminListData(),
+	pendingComponent: AdminToursPending,
 	component: ManageTours,
 });
+
+function AdminToursPending() {
+	return <div className="text-muted-foreground">Loading…</div>;
+}
 
 function toDatetimeLocalValue(iso: string | null | undefined): string {
 	if (!iso) return "";
@@ -62,9 +68,8 @@ function formatAmbassador(p: PersonRow | undefined): string {
 }
 
 function ManageTours() {
-	const [tours, setTours] = useState<TourRow[]>([]);
-	const [people, setPeople] = useState<PersonRow[]>([]);
-	const [loadError, setLoadError] = useState<string | null>(null);
+	const router = useRouter();
+	const { people, tours, loadError } = Route.useRouteContext();
 	const [form, setForm] = useState({
 		company: "",
 		ambassador_id: "",
@@ -78,21 +83,6 @@ function ManageTours() {
 		start_time: "",
 	});
 	const [deleteTarget, setDeleteTarget] = useState<TourRow | null>(null);
-
-	const refresh = useCallback(async () => {
-		setLoadError(null);
-		try {
-			const [t, p] = await Promise.all([fetchTours(), fetchPeople()]);
-			setTours(t);
-			setPeople(p);
-		} catch (e) {
-			setLoadError(e instanceof Error ? e.message : "Failed to load");
-		}
-	}, []);
-
-	useEffect(() => {
-		void refresh();
-	}, [refresh]);
 
 	const ambassadors = people.filter((p) => p.role === "ambassador");
 
@@ -127,7 +117,7 @@ function ManageTours() {
 					: null,
 			});
 			setForm({ company: "", ambassador_id: "", start_time: "" });
-			await refresh();
+			await router.invalidate();
 		} catch (err) {
 			window.alert(err instanceof Error ? err.message : "Error");
 		}
@@ -158,7 +148,7 @@ function ManageTours() {
 			});
 			setEditOpen(false);
 			setEditing(null);
-			await refresh();
+			await router.invalidate();
 		} catch (err) {
 			window.alert(err instanceof Error ? err.message : "Error");
 		}
@@ -169,7 +159,7 @@ function ManageTours() {
 		try {
 			await deleteTour(deleteTarget.id);
 			setDeleteTarget(null);
-			await refresh();
+			await router.invalidate();
 		} catch (err) {
 			window.alert(err instanceof Error ? err.message : "Error");
 		}

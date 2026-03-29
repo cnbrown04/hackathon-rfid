@@ -154,3 +154,26 @@ export async function deleteTour(id: string): Promise<void> {
 	});
 	if (!r.ok) throw new Error(await parseError(r));
 }
+
+/** Fetches people + tours for admin route loaders. */
+export type AdminListData = {
+	people: PersonRow[];
+	tours: TourRow[];
+	loadError: string | null;
+};
+
+export async function loadAdminListData(): Promise<AdminListData> {
+	if (typeof window === "undefined") {
+		return { people: [], tours: [], loadError: null };
+	}
+	try {
+		const [people, tours] = await Promise.all([fetchPeople(), fetchTours()]);
+		return { people, tours, loadError: null };
+	} catch (e) {
+		return {
+			people: [],
+			tours: [],
+			loadError: e instanceof Error ? e.message : "Failed to load",
+		};
+	}
+}

@@ -16,6 +16,8 @@ import {
 } from "#/lib/admin-api";
 
 export const Route = createFileRoute("/admin")({
+	// Matches client-only admin data routes (Bearer token in sessionStorage).
+	ssr: false,
 	component: AdminLayout,
 });
 

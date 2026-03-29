@@ -1,5 +1,5 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { useCallback, useEffect, useState } from "react";
+import { createFileRoute, useRouter } from "@tanstack/react-router";
+import { useState } from "react";
 import {
 	AlertDialog,
 	AlertDialogCancel,
@@ -30,18 +30,24 @@ import {
 import {
 	createPerson,
 	deletePerson,
-	fetchPeople,
-	fetchTours,
+	loadAdminListData,
 	type PersonRow,
 	TOUR_ROLES,
 	type TourRole,
-	type TourRow,
 	updatePerson,
 } from "#/lib/admin-api";
 
 export const Route = createFileRoute("/admin/people")({
+	// sessionStorage auth only exists in the browser — SSR would always return empty rows
+	ssr: false,
+	beforeLoad: async () => loadAdminListData(),
+	pendingComponent: AdminPeoplePending,
 	component: ManagePeople,
 });
+
+function AdminPeoplePending() {
+	return <div className="text-muted-foreground">Loading…</div>;
+}
 
 type FormState = {
 	epc: string;
@@ -68,29 +74,13 @@ const emptyForm = (): FormState => ({
 });
 
 function ManagePeople() {
-	const [rows, setRows] = useState<PersonRow[]>([]);
-	const [tours, setTours] = useState<TourRow[]>([]);
-	const [loadError, setLoadError] = useState<string | null>(null);
+	const router = useRouter();
+	const { people: rows, tours, loadError } = Route.useRouteContext();
 	const [form, setForm] = useState<FormState>(() => emptyForm());
 	const [editOpen, setEditOpen] = useState(false);
 	const [editing, setEditing] = useState<PersonRow | null>(null);
 	const [editForm, setEditForm] = useState<FormState>(emptyForm());
 	const [deleteTarget, setDeleteTarget] = useState<PersonRow | null>(null);
-
-	const refresh = useCallback(async () => {
-		setLoadError(null);
-		try {
-			const [p, t] = await Promise.all([fetchPeople(), fetchTours()]);
-			setRows(p);
-			setTours(t);
-		} catch (e) {
-			setLoadError(e instanceof Error ? e.message : "Failed to load");
-		}
-	}, []);
-
-	useEffect(() => {
-		void refresh();
-	}, [refresh]);
 
 	function tourLabel(id: string | null) {
 		if (!id) return "—";
@@ -113,7 +103,7 @@ function ManagePeople() {
 				tour_id: form.tour_id || null,
 			});
 			setForm(emptyForm());
-			await refresh();
+			await router.invalidate();
 		} catch (err) {
 			window.alert(err instanceof Error ? err.message : "Error");
 		}
@@ -151,7 +141,7 @@ function ManagePeople() {
 			});
 			setEditOpen(false);
 			setEditing(null);
-			await refresh();
+			await router.invalidate();
 		} catch (err) {
 			window.alert(err instanceof Error ? err.message : "Error");
 		}
@@ -162,7 +152,7 @@ function ManagePeople() {
 		try {
 			await deletePerson(deleteTarget.id);
 			setDeleteTarget(null);
-			await refresh();
+			await router.invalidate();
 		} catch (err) {
 			window.alert(err instanceof Error ? err.message : "Error");
 		}
