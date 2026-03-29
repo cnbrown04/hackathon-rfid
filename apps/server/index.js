@@ -1,6 +1,7 @@
 require("dotenv").config();
 const crypto = require("crypto");
 const fs = require("fs");
+const http = require("http");
 const path = require("path");
 const { Pool, Client } = require("pg");
 const { WebSocketServer } = require("ws");
@@ -20,7 +21,9 @@ function getOpenApiSpec() {
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "RFIDLab123!";
 
 const DATABASE_URL = process.env.DATABASE_URL;
-const WS_PORT = Number(process.env.WS_PORT) || 3001;
+
+/** Heroku sets PORT; local dev often uses HTTP_PORT. */
+const LISTEN_PORT = Number(process.env.PORT) || Number(process.env.HTTP_PORT) || 3002;
 
 // --- Postgres pool for queries (inserting scans, etc.) ---
 const pool = new Pool({ connectionString: DATABASE_URL });
@@ -28,8 +31,8 @@ const pool = new Pool({ connectionString: DATABASE_URL });
 // --- Dedicated Postgres client for LISTEN/NOTIFY ---
 const listener = new Client({ connectionString: DATABASE_URL });
 
-// --- WebSocket server ---
-const wss = new WebSocketServer({ port: WS_PORT });
+// --- WebSocket server (attached to HTTP server below; single port for PaaS like Heroku) ---
+let wss;
 
 function broadcast(data) {
   const msg = JSON.stringify(data);
@@ -72,8 +75,23 @@ function readJsonBody(req) {
   });
 }
 
+/** Merged into every HTTP response so browsers always see CORS (writeHead does not reliably keep prior setHeader). */
+function corsHeaders() {
+  return {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS",
+    "Access-Control-Allow-Headers":
+      "Content-Type, Authorization, X-Requested-With, Accept, Origin",
+    "Access-Control-Max-Age": "86400",
+  };
+}
+
+function withCors(extra = {}) {
+  return { ...corsHeaders(), ...extra };
+}
+
 function json(res, status, obj) {
-  res.writeHead(status, { "Content-Type": "application/json" });
+  res.writeHead(status, withCors({ "Content-Type": "application/json" }));
   res.end(JSON.stringify(obj));
 }
 
@@ -195,9 +213,11 @@ async function broadcastWelcomeForEpc(epc) {
 
 // --- Boot sequence ---
 async function start() {
-  // 1. Clean slate for testing
-  await pool.query("TRUNCATE tour_event RESTART IDENTITY");
-  console.log("Truncated tour_event table");
+  // Optional dev/demo reset — never default in production (e.g. Heroku).
+  if (process.env.TRUNCATE_TOUR_EVENTS_ON_BOOT === "true") {
+    await pool.query("TRUNCATE tour_event RESTART IDENTITY");
+    console.log("Truncated tour_event table");
+  }
 
   // 2. Connect the LISTEN client
   await listener.connect();
@@ -247,34 +267,36 @@ async function start() {
     ws.on("close", () => console.log("WebSocket client disconnected"));
   });
 
-  console.log(`WebSocket server running on ws://localhost:${WS_PORT}`);
+  console.log(`WebSocket listening on the same port as HTTP (${LISTEN_PORT})`);
 }
 
 // --- REST-style scan insert (for testing / RFID reader HTTP posts) ---
-const http = require("http");
-
 const httpServer = http.createServer(async (req, res) => {
-  // CORS headers for frontend dev
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
-
   if (req.method === "OPTIONS") {
-    res.writeHead(204);
+    res.writeHead(204, withCors());
     res.end();
     return;
   }
 
-  const pathname = new URL(req.url, "http://localhost").pathname;
+  let pathname;
+  try {
+    pathname = new URL(req.url, "http://localhost").pathname;
+  } catch {
+    json(res, 400, { error: "Bad request" });
+    return;
+  }
 
   // GET /openapi.json — OpenAPI document as JSON (admin UI, codegen, etc.)
   if (req.method === "GET" && pathname === "/openapi.json") {
     try {
       const spec = getOpenApiSpec();
-      res.writeHead(200, {
-        "Content-Type": "application/json; charset=utf-8",
-        "Cache-Control": "no-store",
-      });
+      res.writeHead(
+        200,
+        withCors({
+          "Content-Type": "application/json; charset=utf-8",
+          "Cache-Control": "no-store",
+        })
+      );
       res.end(JSON.stringify(spec));
     } catch (err) {
       console.error("OpenAPI spec:", err);
@@ -293,10 +315,13 @@ const httpServer = http.createServer(async (req, res) => {
          ORDER BY epc ASC`
       );
       const lines = result.rows.map((row) => `${row.epc},${row.tour_id}`);
-      res.writeHead(200, {
-        "Content-Type": "text/csv; charset=utf-8",
-        "Cache-Control": "no-store",
-      });
+      res.writeHead(
+        200,
+        withCors({
+          "Content-Type": "text/csv; charset=utf-8",
+          "Cache-Control": "no-store",
+        })
+      );
       res.end(lines.join("\n") + (lines.length > 0 ? "\n" : ""));
     } catch (err) {
       console.error("epc-tour-map query:", err);
@@ -709,23 +734,26 @@ const httpServer = http.createServer(async (req, res) => {
   }
 
   // POST /event — insert a tour_event row (triggers NOTIFY automatically)
-  if (req.method === "POST" && req.url === "/event") {
+  if (req.method === "POST" && pathname === "/event") {
     let body = "";
     req.on("data", (chunk) => (body += chunk));
     req.on("end", async () => {
       try {
         const e = JSON.parse(body);
         if (!e.event_id || !e.event_type || !e.event_ts) {
-          res.writeHead(400, { "Content-Type": "application/json" });
+          res.writeHead(
+            400,
+            withCors({ "Content-Type": "application/json" })
+          );
           res.end(JSON.stringify({ error: "event_id, event_type, and event_ts are required" }));
           return;
         }
         const result = await insertFullTourEvent(pool, e);
-        res.writeHead(201, { "Content-Type": "application/json" });
+        res.writeHead(201, withCors({ "Content-Type": "application/json" }));
         res.end(JSON.stringify(result.rows[0]));
       } catch (err) {
         console.error("Insert error:", err);
-        res.writeHead(500, { "Content-Type": "application/json" });
+        res.writeHead(500, withCors({ "Content-Type": "application/json" }));
         res.end(JSON.stringify({ error: "Internal server error" }));
       }
     });
@@ -733,35 +761,36 @@ const httpServer = http.createServer(async (req, res) => {
   }
 
   // GET /events — fetch recent tour events
-  if (req.method === "GET" && req.url === "/events") {
+  if (req.method === "GET" && pathname === "/events") {
     try {
       const result = await pool.query(
         "SELECT * FROM tour_event ORDER BY event_ts DESC LIMIT 50"
       );
-      res.writeHead(200, { "Content-Type": "application/json" });
+      res.writeHead(200, withCors({ "Content-Type": "application/json" }));
       res.end(JSON.stringify(result.rows));
     } catch (err) {
       console.error("Query error:", err);
-      res.writeHead(500, { "Content-Type": "application/json" });
+      res.writeHead(500, withCors({ "Content-Type": "application/json" }));
       res.end(JSON.stringify({ error: "Internal server error" }));
     }
     return;
   }
 
   // Health check
-  if (req.method === "GET" && req.url === "/health") {
-    res.writeHead(200, { "Content-Type": "application/json" });
+  if (req.method === "GET" && pathname === "/health") {
+    res.writeHead(200, withCors({ "Content-Type": "application/json" }));
     res.end(JSON.stringify({ status: "ok" }));
     return;
   }
 
-  res.writeHead(404);
+  res.writeHead(404, withCors({ "Content-Type": "text/plain; charset=utf-8" }));
   res.end("Not found");
 });
 
-const HTTP_PORT = Number(process.env.HTTP_PORT) || 3002;
-httpServer.listen(HTTP_PORT, () => {
-  console.log(`HTTP server running on http://localhost:${HTTP_PORT}`);
+wss = new WebSocketServer({ server: httpServer });
+
+httpServer.listen(LISTEN_PORT, "0.0.0.0", () => {
+  console.log(`HTTP server listening on port ${LISTEN_PORT}`);
 });
 
 start().catch((err) => {
