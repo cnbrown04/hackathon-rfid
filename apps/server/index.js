@@ -108,6 +108,31 @@ function welcomePayloadFromRow(person) {
   };
 }
 
+/** `tour_event.tour_id` is TEXT (may hold demo slugs); `tours.id` is uuid — only cast when valid. */
+function isUuidString(s) {
+  if (s == null || typeof s !== "string") return false;
+  const t = s.trim();
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(t);
+}
+
+/** Inserts from POST /api/admin/simulate-tour-event — NOTIFY must not run welcome from broker row; handler broadcasts instead. */
+const ADMIN_SIMULATE_EVENT_TYPE = "admin_simulate_tag_read";
+
+/** Welcome kiosk: canonical id `welcome`, legacy aggregators still send `reader-2`. */
+function isWelcomeReaderId(readerId) {
+  return readerId === "welcome" || readerId === "reader-2";
+}
+
+/** LiDAR shelf: canonical `lidar`, legacy `reader-3`. */
+function isLidarReaderId(readerId) {
+  return readerId === "lidar" || readerId === "reader-3";
+}
+
+/** WebSocket payloads always use `welcome` so the browser can filter on one id. */
+function canonicalWelcomeReaderId(readerId) {
+  return isWelcomeReaderId(readerId) ? "welcome" : readerId;
+}
+
 /** Same tour pick as welcome roster: nearest scheduled start to now for this ambassador. */
 async function nearestTourForAmbassador(ambassadorId) {
   const toursResult = await pool.query(
@@ -144,19 +169,22 @@ async function resolveTourIdForSimulatedEvent(person, optionalTourId) {
 async function dispatchTourEventFromNotify(row) {
   broadcast({ type: "tour_event", data: row });
 
-  if (row.reader_id === "welcome" && row.epc) {
+  if (isWelcomeReaderId(row.reader_id) && row.epc) {
     try {
-      await broadcastWelcomeForEpc(row.epc, {
-        tour_id: row.tour_id ?? null,
-        reader_id: row.reader_id,
-      });
+      // Never trust tour_event.tour_id from the broker (TEXT / demo slugs). Real reads use NOTIFY only.
+      // Admin simulate inserts use ADMIN_SIMULATE_EVENT_TYPE — welcome is broadcast in the HTTP handler instead.
+      if (row.event_type !== ADMIN_SIMULATE_EVENT_TYPE) {
+        await broadcastWelcomeForEpc(row.epc, {
+          reader_id: canonicalWelcomeReaderId(row.reader_id),
+        });
+      }
     } catch (err) {
       console.error("Welcome lookup error:", err);
     }
   }
 
-  // "lidar" is the shelf reader — look up product and broadcast
-  if (row.reader_id === "lidar" && row.epc) {
+  // Shelf reader — look up product and broadcast
+  if (isLidarReaderId(row.reader_id) && row.epc) {
     console.log("[lidar] lidar reader event, EPC:", row.epc);
     try {
       const result = await pool.query(
@@ -186,10 +214,14 @@ async function dispatchTourEventFromNotify(row) {
 
 /**
  * Looks up EPC; ambassadors with a timed tour broadcast tour_roster.
- * Uses event row's tour_id when set (explicit pick / resolved insert); otherwise nearest start_time to now.
+ * Tour choice: nearest scheduled start for this ambassador, unless options.tour_id is set
+ * (admin simulate / iPad only — never from broker NOTIFY payloads).
  */
 async function broadcastWelcomeForEpc(epc, options = {}) {
-  const explicitTourId = options.tour_id ?? null;
+  const explicitTourId =
+    options.tour_id !== undefined && options.tour_id !== null
+      ? options.tour_id
+      : null;
   const readerId = options.reader_id ?? "welcome";
 
   const result = await pool.query(
@@ -204,7 +236,7 @@ async function broadcastWelcomeForEpc(epc, options = {}) {
 
   if (person.role === "ambassador") {
     let tour = null;
-    if (explicitTourId) {
+    if (explicitTourId && isUuidString(explicitTourId)) {
       const tr = await pool.query(
         `SELECT id, company, logo, ambassador_id, start_time, created_at
          FROM tours
@@ -867,6 +899,12 @@ const httpServer = http.createServer(async (req, res) => {
               : null;
 
           if (optionalTourId && personRow.role === "ambassador") {
+            if (!isUuidString(optionalTourId)) {
+              json(res, 400, {
+                error: "tour_id must be a UUID (matches tours.id)",
+              });
+              return;
+            }
             const checkTour = await pool.query(
               `SELECT id FROM tours WHERE id = $1::uuid AND ambassador_id = $2`,
               [optionalTourId, personRow.id]
@@ -885,12 +923,31 @@ const httpServer = http.createServer(async (req, res) => {
           );
           const fake = buildFakeTourEventBody(epc, {
             reader_id: body.reader_id,
-            event_type: body.event_type,
+            event_type: ADMIN_SIMULATE_EVENT_TYPE,
             tour_id: resolvedTourId,
             site_id: body.site_id,
             antenna_id: body.antenna_id,
           });
           const result = await insertFullTourEvent(pool, fake);
+
+          // Welcome roster: only from server-side person/tour resolution — never from broker row fields.
+          const readerForSim = fake.reader_id ?? "welcome";
+          if (isWelcomeReaderId(readerForSim)) {
+            try {
+              await broadcastWelcomeForEpc(epc, {
+                tour_id:
+                  personRow.role === "ambassador" &&
+                  optionalTourId &&
+                  isUuidString(optionalTourId)
+                    ? resolvedTourId
+                    : null,
+                reader_id: "welcome",
+              });
+            } catch (err) {
+              console.error("Welcome broadcast after simulate:", err);
+            }
+          }
+
           json(res, 201, result.rows[0]);
         })
         .catch((err) => {
