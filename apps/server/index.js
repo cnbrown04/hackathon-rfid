@@ -1,6 +1,7 @@
 require("dotenv").config();
 const crypto = require("crypto");
 const fs = require("fs");
+const http = require("http");
 const path = require("path");
 const { Pool, Client } = require("pg");
 const { WebSocketServer } = require("ws");
@@ -20,7 +21,9 @@ function getOpenApiSpec() {
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "RFIDLab123!";
 
 const DATABASE_URL = process.env.DATABASE_URL;
-const WS_PORT = Number(process.env.WS_PORT) || 3001;
+
+/** Heroku sets PORT; local dev often uses HTTP_PORT. */
+const LISTEN_PORT = Number(process.env.PORT) || Number(process.env.HTTP_PORT) || 3002;
 
 // --- Postgres pool for queries (inserting scans, etc.) ---
 const pool = new Pool({ connectionString: DATABASE_URL });
@@ -28,8 +31,8 @@ const pool = new Pool({ connectionString: DATABASE_URL });
 // --- Dedicated Postgres client for LISTEN/NOTIFY ---
 const listener = new Client({ connectionString: DATABASE_URL });
 
-// --- WebSocket server ---
-const wss = new WebSocketServer({ port: WS_PORT });
+// --- WebSocket server (attached to HTTP server below; single port for PaaS like Heroku) ---
+let wss;
 
 function broadcast(data) {
   const msg = JSON.stringify(data);
@@ -195,9 +198,11 @@ async function broadcastWelcomeForEpc(epc) {
 
 // --- Boot sequence ---
 async function start() {
-  // 1. Clean slate for testing
-  await pool.query("TRUNCATE tour_event RESTART IDENTITY");
-  console.log("Truncated tour_event table");
+  // Optional dev/demo reset — never default in production (e.g. Heroku).
+  if (process.env.TRUNCATE_TOUR_EVENTS_ON_BOOT === "true") {
+    await pool.query("TRUNCATE tour_event RESTART IDENTITY");
+    console.log("Truncated tour_event table");
+  }
 
   // 2. Connect the LISTEN client
   await listener.connect();
@@ -223,12 +228,10 @@ async function start() {
     ws.on("close", () => console.log("WebSocket client disconnected"));
   });
 
-  console.log(`WebSocket server running on ws://localhost:${WS_PORT}`);
+  console.log(`WebSocket listening on the same port as HTTP (${LISTEN_PORT})`);
 }
 
 // --- REST-style scan insert (for testing / RFID reader HTTP posts) ---
-const http = require("http");
-
 const httpServer = http.createServer(async (req, res) => {
   // CORS headers for frontend dev
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -735,9 +738,10 @@ const httpServer = http.createServer(async (req, res) => {
   res.end("Not found");
 });
 
-const HTTP_PORT = Number(process.env.HTTP_PORT) || 3002;
-httpServer.listen(HTTP_PORT, () => {
-  console.log(`HTTP server running on http://localhost:${HTTP_PORT}`);
+wss = new WebSocketServer({ server: httpServer });
+
+httpServer.listen(LISTEN_PORT, "0.0.0.0", () => {
+  console.log(`HTTP server listening on port ${LISTEN_PORT}`);
 });
 
 start().catch((err) => {

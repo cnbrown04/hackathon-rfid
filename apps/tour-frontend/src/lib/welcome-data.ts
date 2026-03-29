@@ -1,3 +1,5 @@
+import { viteWsUrl } from "./env-urls";
+
 /** Demo EPC used in antenna flow test data */
 export const PLACEHOLDER_EPC = "E28069950000500CA794A47F";
 
@@ -25,8 +27,6 @@ export type TourRosterPayload = {
 	people: WelcomeUser[];
 };
 
-const WS_URL = "ws://localhost:3001";
-
 export type WelcomeSocketHandlers = {
 	onWelcome: (user: WelcomeUser) => void;
 	onTourRoster?: (payload: TourRosterPayload) => void;
@@ -36,7 +36,7 @@ export function connectWelcomeSocket(handlers: WelcomeSocketHandlers) {
 	let ws: WebSocket;
 
 	function connect() {
-		ws = new WebSocket(WS_URL);
+		ws = new WebSocket(viteWsUrl());
 
 		ws.onmessage = (event) => {
 			const msg = JSON.parse(event.data);
