@@ -74,11 +74,41 @@ CREATE TABLE IF NOT EXISTS tour_event (
   created_at                  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Localization outputs derived from tour_event stream trilateration
+CREATE TABLE IF NOT EXISTS localization_event (
+  id               BIGSERIAL PRIMARY KEY,
+  event_id         UUID UNIQUE NOT NULL,
+  event_ts         TIMESTAMPTZ NOT NULL,
+  site_id          TEXT,
+  reader_id        TEXT,
+  epc              TEXT NOT NULL,
+  x_ft             DOUBLE PRECISION,
+  y_ft             DOUBLE PRECISION,
+  confidence       DOUBLE PRECISION,
+  rssi_1           DOUBLE PRECISION,
+  rssi_2           DOUBLE PRECISION,
+  rssi_3           DOUBLE PRECISION,
+  r1_ft            DOUBLE PRECISION,
+  r2_ft            DOUBLE PRECISION,
+  r3_ft            DOUBLE PRECISION,
+  source_event_ids JSONB,
+  quality          JSONB,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- Notify function: fires on every new tour_event insert
 CREATE OR REPLACE FUNCTION notify_new_event()
 RETURNS TRIGGER AS $$
 BEGIN
   PERFORM pg_notify('new_event', row_to_json(NEW)::text);
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION notify_new_localization_event()
+RETURNS TRIGGER AS $$
+BEGIN
+  PERFORM pg_notify('new_localization_event', row_to_json(NEW)::text);
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
@@ -89,3 +119,9 @@ CREATE TRIGGER tour_event_inserted
   AFTER INSERT ON tour_event
   FOR EACH ROW
   EXECUTE FUNCTION notify_new_event();
+
+DROP TRIGGER IF EXISTS localization_event_inserted ON localization_event;
+CREATE TRIGGER localization_event_inserted
+  AFTER INSERT ON localization_event
+  FOR EACH ROW
+  EXECUTE FUNCTION notify_new_localization_event();

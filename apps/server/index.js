@@ -34,6 +34,31 @@ const listener = new Client({ connectionString: DATABASE_URL });
 // --- WebSocket server (attached to HTTP server below; single port for PaaS like Heroku) ---
 let wss;
 
+const LOCALIZATION_GRID_SIZE_FT = Number(process.env.LOCALIZATION_GRID_SIZE_FT || 6);
+const LOCALIZATION_READER_ID = process.env.LOCALIZATION_READER_ID || "localize";
+const LOCALIZATION_FRESH_MS = Number(process.env.LOCALIZATION_FRESH_MS || 8000);
+const LOCALIZATION_REF_RSSI_DBM = Number(process.env.LOCALIZATION_REF_RSSI_DBM || -47);
+const LOCALIZATION_PATH_LOSS_N = Number(process.env.LOCALIZATION_PATH_LOSS_N || 2.2);
+const LOCALIZATION_REF_DISTANCE_FT = Number(
+  process.env.LOCALIZATION_REF_DISTANCE_FT || 3.28084
+);
+const LOCALIZATION_MIN_DISTANCE_FT = Number(process.env.LOCALIZATION_MIN_DISTANCE_FT || 0.2);
+const LOCALIZATION_MAX_DISTANCE_FT = Number(
+  process.env.LOCALIZATION_MAX_DISTANCE_FT || LOCALIZATION_GRID_SIZE_FT * 2
+);
+
+const LOCALIZATION_ANCHORS = {
+  1: { label: "localization-1", x: 0, y: 0 },
+  2: { label: "localization-2", x: LOCALIZATION_GRID_SIZE_FT, y: 0 },
+  3: {
+    label: "localization-3",
+    x: LOCALIZATION_GRID_SIZE_FT / 2,
+    y: LOCALIZATION_GRID_SIZE_FT,
+  },
+};
+
+const localizationStateByTag = new Map();
+
 function broadcast(data) {
   const msg = JSON.stringify(data);
   for (const client of wss.clients) {
@@ -330,6 +355,190 @@ async function dispatchTourEventFromNotify(row) {
   }
 }
 
+function asFiniteNumber(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function parseEventMs(eventTs) {
+  const t = new Date(eventTs).getTime();
+  return Number.isFinite(t) ? t : Date.now();
+}
+
+function rssiToDistanceFt(rssi) {
+  const rssiValue = asFiniteNumber(rssi);
+  if (rssiValue == null) return null;
+  const exponent = (LOCALIZATION_REF_RSSI_DBM - rssiValue) / (10 * LOCALIZATION_PATH_LOSS_N);
+  const d = LOCALIZATION_REF_DISTANCE_FT * 10 ** exponent;
+  if (!Number.isFinite(d)) return null;
+  return clamp(d, LOCALIZATION_MIN_DISTANCE_FT, LOCALIZATION_MAX_DISTANCE_FT);
+}
+
+function trilaterate2d(a1, r1, a2, r2, a3, r3) {
+  const A = 2 * (a2.x - a1.x);
+  const B = 2 * (a2.y - a1.y);
+  const C = r1 ** 2 - r2 ** 2 - a1.x ** 2 + a2.x ** 2 - a1.y ** 2 + a2.y ** 2;
+
+  const D = 2 * (a3.x - a1.x);
+  const E = 2 * (a3.y - a1.y);
+  const F = r1 ** 2 - r3 ** 2 - a1.x ** 2 + a3.x ** 2 - a1.y ** 2 + a3.y ** 2;
+
+  const det = A * E - B * D;
+  if (Math.abs(det) < 1e-9) {
+    return null;
+  }
+
+  const x = (C * E - B * F) / det;
+  const y = (A * F - C * D) / det;
+  if (!Number.isFinite(x) || !Number.isFinite(y)) {
+    return null;
+  }
+
+  const residuals = [
+    Math.hypot(x - a1.x, y - a1.y) - r1,
+    Math.hypot(x - a2.x, y - a2.y) - r2,
+    Math.hypot(x - a3.x, y - a3.y) - r3,
+  ];
+  const rmse = Math.sqrt(
+    residuals.reduce((acc, v) => acc + v * v, 0) / residuals.length
+  );
+
+  return { x, y, residuals, rmse };
+}
+
+function computeLocalizationConfidence({ rmse, maxAgeMs, x, y }) {
+  const rmseScale = LOCALIZATION_GRID_SIZE_FT * 0.75;
+  const rmseScore = clamp(1 - rmse / rmseScale, 0, 1);
+  const freshnessScore = clamp(1 - maxAgeMs / LOCALIZATION_FRESH_MS, 0, 1);
+  const inBounds = x >= 0 && x <= LOCALIZATION_GRID_SIZE_FT && y >= 0 && y <= LOCALIZATION_GRID_SIZE_FT;
+  const boundsScore = inBounds ? 1 : 0.35;
+  return Number((rmseScore * 0.7 + freshnessScore * 0.2 + boundsScore * 0.1).toFixed(4));
+}
+
+async function tryInsertLocalizationEventFromTourEvent(event) {
+  if (!event || !event.epc) return;
+  if (event.reader_id !== LOCALIZATION_READER_ID) return;
+
+  const antennaId = Number(event.antenna_id);
+  if (!Number.isInteger(antennaId) || !LOCALIZATION_ANCHORS[antennaId]) {
+    return;
+  }
+
+  const rssi = asFiniteNumber(event.avg_rssi_60s);
+  if (rssi == null) return;
+
+  const eventTsMs = parseEventMs(event.event_ts);
+  const tagKey = `${event.site_id || "site"}|${event.epc}`;
+  const entry = localizationStateByTag.get(tagKey) || { antennas: {} };
+  entry.siteId = event.site_id || null;
+  entry.readerId = event.reader_id || null;
+  entry.epc = event.epc;
+  entry.antennas[antennaId] = {
+    rssi,
+    eventId: event.event_id || null,
+    eventTs: event.event_ts || new Date(eventTsMs).toISOString(),
+    eventTsMs,
+  };
+  localizationStateByTag.set(tagKey, entry);
+
+  const a1 = entry.antennas[1];
+  const a2 = entry.antennas[2];
+  const a3 = entry.antennas[3];
+  if (!a1 || !a2 || !a3) return;
+
+  const newestTsMs = Math.max(a1.eventTsMs, a2.eventTsMs, a3.eventTsMs);
+  const oldestTsMs = Math.min(a1.eventTsMs, a2.eventTsMs, a3.eventTsMs);
+  const maxAgeMs = newestTsMs - oldestTsMs;
+  if (maxAgeMs > LOCALIZATION_FRESH_MS) return;
+
+  const r1 = rssiToDistanceFt(a1.rssi);
+  const r2 = rssiToDistanceFt(a2.rssi);
+  const r3 = rssiToDistanceFt(a3.rssi);
+  if (r1 == null || r2 == null || r3 == null) return;
+
+  const solved = trilaterate2d(
+    LOCALIZATION_ANCHORS[1],
+    r1,
+    LOCALIZATION_ANCHORS[2],
+    r2,
+    LOCALIZATION_ANCHORS[3],
+    r3
+  );
+  if (!solved) return;
+
+  const confidence = computeLocalizationConfidence({
+    rmse: solved.rmse,
+    maxAgeMs,
+    x: solved.x,
+    y: solved.y,
+  });
+
+  const xFt = Number(clamp(solved.x, 0, LOCALIZATION_GRID_SIZE_FT).toFixed(4));
+  const yFt = Number(clamp(solved.y, 0, LOCALIZATION_GRID_SIZE_FT).toFixed(4));
+
+  const sourceEventIds = {
+    "localization-1": a1.eventId,
+    "localization-2": a2.eventId,
+    "localization-3": a3.eventId,
+  };
+  const quality = {
+    rmse_ft: Number(solved.rmse.toFixed(4)),
+    residuals_ft: solved.residuals.map((v) => Number(v.toFixed(4))),
+    freshness_span_ms: maxAgeMs,
+    source_ages_ms: {
+      "localization-1": newestTsMs - a1.eventTsMs,
+      "localization-2": newestTsMs - a2.eventTsMs,
+      "localization-3": newestTsMs - a3.eventTsMs,
+    },
+  };
+
+  await pool.query(
+    `INSERT INTO localization_event (
+      event_id, event_ts, site_id, reader_id, epc, x_ft, y_ft, confidence,
+      rssi_1, rssi_2, rssi_3, r1_ft, r2_ft, r3_ft, source_event_ids, quality
+    ) VALUES (
+      gen_random_uuid(), to_timestamp($1::double precision / 1000.0), $2, $3, $4, $5, $6, $7,
+      $8, $9, $10, $11, $12, $13, $14::jsonb, $15::jsonb
+    )`,
+    [
+      newestTsMs,
+      entry.siteId,
+      entry.readerId,
+      entry.epc,
+      xFt,
+      yFt,
+      confidence,
+      a1.rssi,
+      a2.rssi,
+      a3.rssi,
+      r1,
+      r2,
+      r3,
+      JSON.stringify(sourceEventIds),
+      JSON.stringify(quality),
+    ]
+  );
+}
+
+function pruneLocalizationState(nowMs) {
+  const staleMs = Math.max(LOCALIZATION_FRESH_MS * 3, 15000);
+  for (const [tagKey, state] of localizationStateByTag.entries()) {
+    const antennas = state?.antennas || {};
+    const latestSeen = Math.max(
+      antennas[1]?.eventTsMs || 0,
+      antennas[2]?.eventTsMs || 0,
+      antennas[3]?.eventTsMs || 0
+    );
+    if (!latestSeen || nowMs - latestSeen > staleMs) {
+      localizationStateByTag.delete(tagKey);
+    }
+  }
+}
+
 /**
  * Looks up EPC; ambassadors with a timed tour broadcast tour_roster.
  * Tour choice: nearest scheduled start for this ambassador, unless options.tour_id is set
@@ -432,16 +641,41 @@ async function start() {
   // 2. Connect the LISTEN client
   await listener.connect();
   await listener.query("LISTEN new_event");
+  await listener.query("LISTEN new_localization_event");
   console.log("Listening for Postgres NOTIFY on channel: new_event");
+  console.log("Listening for Postgres NOTIFY on channel: new_localization_event");
+
+  setInterval(() => {
+    pruneLocalizationState(Date.now());
+  }, 10000).unref?.();
 
   // 3. NOTIFY → WebSocket (same path for real writers, simulate inserts, etc.)
   listener.on("notification", async (msg) => {
+    let payload;
     try {
-      const event = JSON.parse(msg.payload);
-      console.log("Event received:", event);
-      await dispatchTourEventFromNotify(event);
+      payload = JSON.parse(msg.payload);
     } catch (err) {
       console.error("Notification handler error:", err);
+      return;
+    }
+
+    if (msg.channel === "new_localization_event") {
+      broadcast({ type: "localization_event", data: payload });
+      return;
+    }
+
+    if (msg.channel !== "new_event") {
+      return;
+    }
+
+    const event = payload;
+    console.log("Event received:", event);
+
+    try {
+      await dispatchTourEventFromNotify(event);
+      await tryInsertLocalizationEventFromTourEvent(event);
+    } catch (err) {
+      console.error("Tour event dispatch error:", err);
     }
   });
 
