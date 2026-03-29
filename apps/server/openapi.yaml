@@ -1,0 +1,930 @@
+openapi: 3.0.3
+info:
+  title: RFID Lab HTTP API
+  description: |
+    HTTP surface for `apps/server` (`index.js`). Default port **3002** (`HTTP_PORT` env).
+    WebSocket (`WS_PORT`, default 3001) is not included here.
+
+    **Admin routes** (except `POST /api/admin/login`) require header `Authorization: Bearer <ADMIN_PASSWORD>`.
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:3002
+    description: Local (override with HTTP_PORT)
+
+tags:
+  - name: Public
+    description: No admin auth
+  - name: Admin
+    description: Bearer admin token (except login)
+  - name: Events
+    description: Tour event ingestion and listing
+
+paths:
+  /openapi.json:
+    get:
+      tags: [Public]
+      summary: OpenAPI document (JSON)
+      description: |
+        Returns the same contract as `apps/server/openapi.yaml`, parsed to JSON.
+        Used by the admin UI and other clients instead of bundling the YAML in the frontend.
+      operationId: getOpenApiJson
+      responses:
+        "200":
+          description: OpenAPI 3 object
+          content:
+            application/json:
+              schema:
+                type: object
+        "500":
+          $ref: "#/components/responses/JsonError"
+
+  /health:
+    get:
+      tags: [Public]
+      summary: Liveness / health check
+      operationId: getHealth
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    example: ok
+
+  /api/epc-tour-map:
+    get:
+      tags: [Public]
+      summary: EPC to tour UUID map (CSV)
+      description: |
+        Returns CSV lines `epc,tour_id` for every person with a non-null `tour_id`.
+        Used by the RFID host aggregator on startup.
+      operationId: getEpcTourMap
+      responses:
+        "200":
+          description: CSV body (may be empty)
+          content:
+            text/csv:
+              schema:
+                type: string
+                example: |
+                  EPC001,550e8400-e29b-41d4-a716-446655440000
+        "500":
+          $ref: "#/components/responses/JsonError"
+
+  /api/admin/login:
+    post:
+      tags: [Admin]
+      summary: Verify admin password
+      description: >-
+        Returns 200 if password matches ADMIN_PASSWORD; does not issue a JWT — clients store
+        the password and send Authorization Bearer on admin routes.
+      operationId: postAdminLogin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                password:
+                  type: string
+              required: [password]
+      responses:
+        "200":
+          description: Valid password
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    example: true
+        "400":
+          $ref: "#/components/responses/JsonError"
+        "401":
+          $ref: "#/components/responses/JsonError"
+
+  /api/admin/people:
+    get:
+      tags: [Admin]
+      summary: List all people
+      security: [AdminBearer: []]
+      operationId: listPeople
+      responses:
+        "200":
+          description: Ordered by id ascending
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Person"
+        "401":
+          $ref: "#/components/responses/JsonError"
+        "500":
+          $ref: "#/components/responses/JsonError"
+    post:
+      tags: [Admin]
+      summary: Create person
+      security: [AdminBearer: []]
+      operationId: createPerson
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PersonCreate"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Person"
+        "400":
+          $ref: "#/components/responses/JsonError"
+        "401":
+          $ref: "#/components/responses/JsonError"
+        "409":
+          description: Duplicate EPC
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "500":
+          $ref: "#/components/responses/JsonError"
+
+  /api/admin/people/{id}:
+    put:
+      tags: [Admin]
+      summary: Update person
+      security: [AdminBearer: []]
+      operationId: updatePerson
+      parameters:
+        - $ref: "#/components/parameters/PersonId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PersonUpdate"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Person"
+        "400":
+          $ref: "#/components/responses/JsonError"
+        "401":
+          $ref: "#/components/responses/JsonError"
+        "404":
+          $ref: "#/components/responses/JsonError"
+        "409":
+          description: Duplicate EPC
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "500":
+          $ref: "#/components/responses/JsonError"
+    delete:
+      tags: [Admin]
+      summary: Delete person
+      security: [AdminBearer: []]
+      operationId: deletePerson
+      parameters:
+        - $ref: "#/components/parameters/PersonId"
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted:
+                    type: integer
+                    description: Person id that was deleted
+        "401":
+          $ref: "#/components/responses/JsonError"
+        "404":
+          $ref: "#/components/responses/JsonError"
+        "500":
+          $ref: "#/components/responses/JsonError"
+
+  /api/admin/tours:
+    get:
+      tags: [Admin]
+      summary: List tours
+      security: [AdminBearer: []]
+      operationId: listTours
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Tour"
+        "401":
+          $ref: "#/components/responses/JsonError"
+        "500":
+          $ref: "#/components/responses/JsonError"
+    post:
+      tags: [Admin]
+      summary: Create tour
+      security: [AdminBearer: []]
+      operationId: createTour
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TourCreate"
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tour"
+        "400":
+          $ref: "#/components/responses/JsonError"
+        "401":
+          $ref: "#/components/responses/JsonError"
+        "500":
+          $ref: "#/components/responses/JsonError"
+
+  /api/admin/tours/{tourId}:
+    put:
+      tags: [Admin]
+      summary: Update tour
+      security: [AdminBearer: []]
+      operationId: updateTour
+      parameters:
+        - $ref: "#/components/parameters/TourUuid"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TourUpdate"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tour"
+        "400":
+          $ref: "#/components/responses/JsonError"
+        "401":
+          $ref: "#/components/responses/JsonError"
+        "404":
+          $ref: "#/components/responses/JsonError"
+        "500":
+          $ref: "#/components/responses/JsonError"
+    delete:
+      tags: [Admin]
+      summary: Delete tour
+      security: [AdminBearer: []]
+      operationId: deleteTour
+      parameters:
+        - $ref: "#/components/parameters/TourUuid"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted:
+                    type: string
+                    format: uuid
+        "401":
+          $ref: "#/components/responses/JsonError"
+        "404":
+          $ref: "#/components/responses/JsonError"
+        "500":
+          $ref: "#/components/responses/JsonError"
+
+  /api/admin/tour-events:
+    get:
+      tags: [Admin]
+      summary: Recent tour events (with person join)
+      description: Last 40 rows, `event_ts` descending; joins `people` on matching `epc`.
+      security: [AdminBearer: []]
+      operationId: listAdminTourEvents
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TourEventAdminRow"
+        "401":
+          $ref: "#/components/responses/JsonError"
+        "500":
+          $ref: "#/components/responses/JsonError"
+    delete:
+      tags: [Admin]
+      summary: Truncate all tour events
+      description: Dev/reset — `TRUNCATE tour_event RESTART IDENTITY`.
+      security: [AdminBearer: []]
+      operationId: deleteAllTourEvents
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  deleted:
+                    type: string
+                    example: all
+        "401":
+          $ref: "#/components/responses/JsonError"
+        "500":
+          $ref: "#/components/responses/JsonError"
+
+  /api/admin/lidar-items:
+    get:
+      tags: [Admin]
+      summary: List LiDAR shelf catalog rows
+      description: Used when `reader-3` events resolve product info for `lidar_scan` WebSocket messages.
+      security: [AdminBearer: []]
+      operationId: listLidarItems
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/LidarItem"
+        "401":
+          $ref: "#/components/responses/JsonError"
+        "500":
+          $ref: "#/components/responses/JsonError"
+    post:
+      tags: [Admin]
+      summary: Create LiDAR catalog row
+      security: [AdminBearer: []]
+      operationId: createLidarItem
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LidarItemCreate"
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LidarItem"
+        "400":
+          $ref: "#/components/responses/JsonError"
+        "401":
+          $ref: "#/components/responses/JsonError"
+        "409":
+          $ref: "#/components/responses/JsonError"
+        "500":
+          $ref: "#/components/responses/JsonError"
+
+  /api/admin/lidar-items/{epc}:
+    put:
+      tags: [Admin]
+      summary: Update LiDAR catalog row
+      security: [AdminBearer: []]
+      operationId: updateLidarItem
+      parameters:
+        - $ref: "#/components/parameters/LidarEpc"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LidarItemUpdate"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LidarItem"
+        "401":
+          $ref: "#/components/responses/JsonError"
+        "404":
+          $ref: "#/components/responses/JsonError"
+        "500":
+          $ref: "#/components/responses/JsonError"
+    delete:
+      tags: [Admin]
+      summary: Delete LiDAR catalog row
+      security: [AdminBearer: []]
+      operationId: deleteLidarItem
+      parameters:
+        - $ref: "#/components/parameters/LidarEpc"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted:
+                    type: string
+        "401":
+          $ref: "#/components/responses/JsonError"
+        "404":
+          $ref: "#/components/responses/JsonError"
+        "500":
+          $ref: "#/components/responses/JsonError"
+
+  /api/admin/clear-welcome-screens:
+    post:
+      tags: [Admin]
+      summary: Reset all /welcome kiosk displays
+      description: |
+        Broadcasts `{ "type": "welcome_clear" }` to every connected WebSocket client.
+        Each `/welcome` page clears roster/cards and returns to the waiting state.
+      security: [AdminBearer: []]
+      operationId: clearWelcomeScreens
+      responses:
+        "200":
+          description: Broadcast sent
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    example: true
+        "401":
+          $ref: "#/components/responses/JsonError"
+
+  /api/admin/simulate-tour-event:
+    post:
+      tags: [Admin]
+      summary: Insert a synthetic tour_event (admin test)
+      description: |
+        Builds a full `tour_event` row like `POST /event`. **`tour_id` is set server-side**:
+        ambassadors → nearest tour by `start_time` to now; others → `people.tour_id`.
+        WebSocket updates come only from Postgres NOTIFY → LISTEN (same as real inserts).
+      security: [AdminBearer: []]
+      operationId: simulateTourEvent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: One of person_id or epc required
+              properties:
+                person_id:
+                  type: integer
+                epc:
+                  type: string
+                reader_id:
+                  type: string
+                event_type:
+                  type: string
+                site_id:
+                  type: string
+                antenna_id:
+                  type: integer
+      responses:
+        "201":
+          description: Inserted row (full tour_event)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TourEventRow"
+        "400":
+          $ref: "#/components/responses/JsonError"
+        "401":
+          $ref: "#/components/responses/JsonError"
+        "404":
+          $ref: "#/components/responses/JsonError"
+        "500":
+          $ref: "#/components/responses/JsonError"
+
+  /event:
+    post:
+      tags: [Events]
+      summary: Insert RFID tour_event (production shape)
+      description: |
+        Inserts a full `tour_event` row. Requires `event_id`, `event_type`, `event_ts`.
+        Triggers DB NOTIFY for WebSocket clients.
+      operationId: postEvent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TourEventInsert"
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TourEventRow"
+        "400":
+          $ref: "#/components/responses/JsonError"
+        "500":
+          $ref: "#/components/responses/JsonError"
+
+  /events:
+    get:
+      tags: [Events]
+      summary: List recent tour events (public)
+      description: Last 50 rows by `event_ts` descending.
+      operationId: listEvents
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TourEventRow"
+        "500":
+          $ref: "#/components/responses/JsonError"
+
+components:
+  securitySchemes:
+    AdminBearer:
+      type: http
+      scheme: bearer
+      description: Raw admin password as bearer token (same value as login password).
+
+  parameters:
+    PersonId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+    TourUuid:
+      name: tourId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    LidarEpc:
+      name: epc
+      in: path
+      required: true
+      description: URL-encoded RFID EPC (primary key)
+      schema:
+        type: string
+
+  responses:
+    JsonError:
+      description: Error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorBody"
+
+  schemas:
+    ErrorBody:
+      type: object
+      properties:
+        error:
+          type: string
+
+    LidarItem:
+      type: object
+      properties:
+        epc:
+          type: string
+        upc:
+          type: string
+          nullable: true
+        item_url:
+          type: string
+          nullable: true
+        item_desc:
+          type: string
+          nullable: true
+
+    LidarItemCreate:
+      type: object
+      required: [epc]
+      properties:
+        epc:
+          type: string
+        upc:
+          type: string
+          nullable: true
+        item_url:
+          type: string
+          nullable: true
+        item_desc:
+          type: string
+          nullable: true
+
+    LidarItemUpdate:
+      type: object
+      properties:
+        upc:
+          type: string
+          nullable: true
+        item_url:
+          type: string
+          nullable: true
+        item_desc:
+          type: string
+          nullable: true
+
+    Person:
+      type: object
+      properties:
+        id:
+          type: integer
+        epc:
+          type: string
+        first_name:
+          type: string
+        last_name:
+          type: string
+        email:
+          type: string
+          nullable: true
+        company:
+          type: string
+          nullable: true
+        title:
+          type: string
+          nullable: true
+        photo_url:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        role:
+          type: string
+          enum: [visitor, ambassador]
+        tour_id:
+          type: string
+          format: uuid
+          nullable: true
+
+    PersonCreate:
+      type: object
+      required: [epc, first_name, last_name]
+      properties:
+        epc:
+          type: string
+        first_name:
+          type: string
+        last_name:
+          type: string
+        email:
+          type: string
+        company:
+          type: string
+        title:
+          type: string
+        photo_url:
+          type: string
+        role:
+          type: string
+          enum: [visitor, ambassador]
+        tour_id:
+          type: string
+          format: uuid
+
+    PersonUpdate:
+      allOf:
+        - $ref: "#/components/schemas/PersonCreate"
+        - type: object
+          required: [role]
+
+    Tour:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        company:
+          type: string
+        logo:
+          type: string
+          nullable: true
+        ambassador_id:
+          type: integer
+          nullable: true
+        start_time:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    TourCreate:
+      type: object
+      required: [company]
+      properties:
+        company:
+          type: string
+        logo:
+          type: string
+          nullable: true
+        ambassador_id:
+          type: integer
+          nullable: true
+        start_time:
+          type: string
+          description: ISO datetime string
+          nullable: true
+
+    TourUpdate:
+      $ref: "#/components/schemas/TourCreate"
+
+    TourEventRow:
+      type: object
+      description: Row from tour_event (snake_case columns as returned by Postgres)
+      properties:
+        id:
+          type: integer
+          format: int64
+        event_id:
+          type: string
+          format: uuid
+        event_type:
+          type: string
+        event_ts:
+          type: string
+          format: date-time
+        site_id:
+          type: string
+          nullable: true
+        reader_id:
+          type: string
+          nullable: true
+        antenna_id:
+          type: integer
+          nullable: true
+        tour_id:
+          type: string
+          nullable: true
+        epc:
+          type: string
+          nullable: true
+        window_start_epoch_sec:
+          type: integer
+          format: int64
+          nullable: true
+        window_end_epoch_sec:
+          type: integer
+          format: int64
+          nullable: true
+        read_count_60s:
+          type: integer
+          format: int64
+          nullable: true
+        unique_tag_count_60s:
+          type: integer
+          format: int64
+          nullable: true
+        avg_rssi_60s:
+          type: number
+          format: double
+          nullable: true
+        baseline_read_count:
+          type: number
+          format: double
+          nullable: true
+        baseline_avg_rssi:
+          type: number
+          format: double
+          nullable: true
+        count_drop_pct:
+          type: number
+          format: double
+          nullable: true
+        rssi_drop_db:
+          type: number
+          format: double
+          nullable: true
+        threshold_count_drop_pct:
+          type: number
+          format: double
+          nullable: true
+        threshold_rssi_drop_db:
+          type: number
+          format: double
+          nullable: true
+        consecutive_checks_required:
+          type: integer
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    TourEventInsert:
+      type: object
+      description: Full insert payload accepted by insertFullTourEvent; server only validates event_id, event_type, event_ts.
+      required: [event_id, event_type, event_ts]
+      properties:
+        event_id:
+          type: string
+          format: uuid
+        event_type:
+          type: string
+        event_ts:
+          type: string
+          format: date-time
+        site_id:
+          type: string
+        reader_id:
+          type: string
+        antenna_id:
+          type: integer
+        tour_id:
+          type: string
+          nullable: true
+        epc:
+          type: string
+        window_start_epoch_sec:
+          type: integer
+          format: int64
+        window_end_epoch_sec:
+          type: integer
+          format: int64
+        read_count_60s:
+          type: integer
+          format: int64
+        unique_tag_count_60s:
+          type: integer
+          format: int64
+        avg_rssi_60s:
+          type: number
+          format: double
+        baseline_read_count:
+          type: number
+          format: double
+        baseline_avg_rssi:
+          type: number
+          format: double
+        count_drop_pct:
+          type: number
+          format: double
+        rssi_drop_db:
+          type: number
+          format: double
+        threshold_count_drop_pct:
+          type: number
+          format: double
+        threshold_rssi_drop_db:
+          type: number
+          format: double
+        consecutive_checks_required:
+          type: integer
+
+    TourEventAdminRow:
+      allOf:
+        - $ref: "#/components/schemas/TourEventRow"
+        - type: object
+          properties:
+            person_id:
+              type: integer
+              nullable: true
+            person_first_name:
+              type: string
+              nullable: true
+            person_last_name:
+              type: string
+              nullable: true
+            person_email:
+              type: string
+              nullable: true
+            person_company:
+              type: string
+              nullable: true
+            person_title:
+              type: string
+              nullable: true
+            person_photo_url:
+              type: string
+              nullable: true
+            person_role:
+              type: string
+              nullable: true
+
+security: []

@@ -5,16 +5,16 @@ export type LidarProduct = {
 	item_desc: string;
 };
 
-const WS_URL = "ws://localhost:3001";
+import { viteWsUrl } from "./env-urls";
 
 export function connectLidarSocket(onProduct: (product: LidarProduct) => void) {
 	let ws: WebSocket;
 
 	function connect() {
-		ws = new WebSocket(WS_URL);
+		ws = new WebSocket(viteWsUrl());
 
 		ws.onopen = () => {
-			console.log("[lidar] WebSocket connected to", WS_URL);
+			console.log("[lidar] WebSocket connected to", viteWsUrl());
 		};
 
 		ws.onmessage = (event) => {

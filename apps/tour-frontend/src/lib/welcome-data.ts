@@ -1,3 +1,5 @@
+import { viteWsUrl } from "./env-urls";
+
 /** Demo EPC used in antenna flow test data */
 export const PLACEHOLDER_EPC = "E28069950000500CA794A47F";
 
@@ -15,24 +17,28 @@ export type WelcomeUser = {
 export type TourRosterPayload = {
 	tour_id: string;
 	company: string;
+	/** Company logo image URL (optional). */
+	logo?: string | null;
 	start_time: string | null;
 	/** EPC of the ambassador whose scan loaded this roster (shown as arrived). */
 	scanned_epc: string;
+	/** When the ambassador scan was processed (ISO). */
+	scanned_at?: string;
 	people: WelcomeUser[];
 };
-
-const WS_URL = "ws://localhost:3001";
 
 export type WelcomeSocketHandlers = {
 	onWelcome: (user: WelcomeUser) => void;
 	onTourRoster?: (payload: TourRosterPayload) => void;
+	/** Admin broadcast: reset all welcome UI to the waiting state. */
+	onWelcomeClear?: () => void;
 };
 
 export function connectWelcomeSocket(handlers: WelcomeSocketHandlers) {
 	let ws: WebSocket;
 
 	function connect() {
-		ws = new WebSocket(WS_URL);
+		ws = new WebSocket(viteWsUrl());
 
 		ws.onmessage = (event) => {
 			const msg = JSON.parse(event.data);
@@ -40,6 +46,8 @@ export function connectWelcomeSocket(handlers: WelcomeSocketHandlers) {
 				handlers.onWelcome(msg.data as WelcomeUser);
 			} else if (msg.type === "tour_roster" && handlers.onTourRoster) {
 				handlers.onTourRoster(msg.data as TourRosterPayload);
+			} else if (msg.type === "welcome_clear" && handlers.onWelcomeClear) {
+				handlers.onWelcomeClear();
 			}
 		};
 

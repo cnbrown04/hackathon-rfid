@@ -264,7 +264,7 @@ function Stepper({
 									i + 1
 								)}
 							</span>
-							<span className="max-w-[8rem] truncate text-xs font-medium text-foreground md:max-w-[10rem] md:text-sm">
+							<span className="max-w-32 truncate text-xs font-medium text-foreground md:max-w-40 md:text-sm">
 								{ev.antennaLabel}
 							</span>
 						</motion.div>

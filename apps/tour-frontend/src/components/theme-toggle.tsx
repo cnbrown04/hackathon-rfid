@@ -1,3 +1,4 @@
+import { useRouterState } from "@tanstack/react-router";
 import { Monitor, Moon, Sun } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "#/components/ui/button";
@@ -43,12 +44,28 @@ function readStoredMode(): ThemeMode {
 	return "auto";
 }
 
+function isWelcomeRoute(pathname: string): boolean {
+	return pathname === "/welcome" || pathname.startsWith("/welcome/");
+}
+
 export function ThemeToggle() {
+	const pathname = useRouterState({ select: (s) => s.location.pathname });
 	const [mode, setMode] = useState<ThemeMode>("auto");
+	const [fullscreen, setFullscreen] = useState(false);
 
 	useEffect(() => {
 		setMode(readStoredMode());
 	}, []);
+
+	useEffect(() => {
+		const sync = () => setFullscreen(Boolean(document.fullscreenElement));
+		sync();
+		document.addEventListener("fullscreenchange", sync);
+		return () => document.removeEventListener("fullscreenchange", sync);
+	}, []);
+
+	const hideOnWelcomeFullscreen =
+		isWelcomeRoute(pathname) && fullscreen;
 
 	useEffect(() => {
 		if (mode !== "auto") return;
@@ -73,19 +90,22 @@ export function ThemeToggle() {
 
 	const Icon = mode === "auto" ? Monitor : mode === "light" ? Sun : Moon;
 
+	if (hideOnWelcomeFullscreen) {
+		return null;
+	}
+
 	return (
-		<div className="fixed top-4 right-4 z-50">
+		<div className="pointer-events-none fixed bottom-3 right-3 z-40 md:bottom-4 md:right-4">
 			<Button
 				type="button"
-				variant="outline"
-				size="sm"
-				className="gap-2 bg-background/80 shadow-sm backdrop-blur-sm"
+				variant="ghost"
+				size="icon-sm"
+				className="pointer-events-auto text-muted-foreground opacity-70 shadow-none hover:bg-muted/60 hover:opacity-100"
 				onClick={onClick}
 				aria-label={`${label}. Click to cycle system, light, or dark.`}
 				title={`${label} — click to cycle`}
 			>
 				<Icon className="size-4" aria-hidden />
-				<span className="hidden sm:inline">{label}</span>
 			</Button>
 		</div>
 	);

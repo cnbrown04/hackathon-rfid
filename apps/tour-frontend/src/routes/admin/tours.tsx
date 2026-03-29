@@ -1,5 +1,6 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useState } from "react";
+import { formatNameSingleLine } from "#/components/person-name";
 import {
 	AlertDialog,
 	AlertDialogCancel,
@@ -64,7 +65,7 @@ function formatStartCst(iso: string | null | undefined): string {
 
 function formatAmbassador(p: PersonRow | undefined): string {
 	if (!p) return "—";
-	return `${p.first_name} ${p.last_name} (#${p.id})`;
+	return `${formatNameSingleLine(p.first_name, p.last_name)} (#${p.id})`;
 }
 
 function ManageTours() {
@@ -72,6 +73,7 @@ function ManageTours() {
 	const { people, tours, loadError } = Route.useRouteContext();
 	const [form, setForm] = useState({
 		company: "",
+		logo: "",
 		ambassador_id: "",
 		start_time: "",
 	});
@@ -79,6 +81,7 @@ function ManageTours() {
 	const [editing, setEditing] = useState<TourRow | null>(null);
 	const [editForm, setEditForm] = useState({
 		company: "",
+		logo: "",
 		ambassador_id: "",
 		start_time: "",
 	});
@@ -109,6 +112,7 @@ function ManageTours() {
 		try {
 			await createTour({
 				company: form.company.trim(),
+				logo: form.logo.trim() || null,
 				ambassador_id: form.ambassador_id
 					? Number.parseInt(form.ambassador_id, 10)
 					: null,
@@ -116,7 +120,7 @@ function ManageTours() {
 					? new Date(form.start_time).toISOString()
 					: null,
 			});
-			setForm({ company: "", ambassador_id: "", start_time: "" });
+			setForm({ company: "", logo: "", ambassador_id: "", start_time: "" });
 			await router.invalidate();
 		} catch (err) {
 			window.alert(err instanceof Error ? err.message : "Error");
@@ -127,6 +131,7 @@ function ManageTours() {
 		setEditing(row);
 		setEditForm({
 			company: row.company,
+			logo: row.logo ?? "",
 			ambassador_id: row.ambassador_id != null ? String(row.ambassador_id) : "",
 			start_time: toDatetimeLocalValue(row.start_time),
 		});
@@ -139,6 +144,7 @@ function ManageTours() {
 		try {
 			await updateTour(editing.id, {
 				company: editForm.company.trim(),
+				logo: editForm.logo.trim() || null,
 				ambassador_id: editForm.ambassador_id
 					? Number.parseInt(editForm.ambassador_id, 10)
 					: null,
@@ -166,7 +172,7 @@ function ManageTours() {
 	}
 
 	return (
-		<div className="flex flex-col gap-10">
+		<div className="flex min-w-0 flex-col gap-10">
 			<div>
 				<h1 className="text-xl font-semibold tracking-tight">Tours</h1>
 				<p className="mt-1 text-sm text-muted-foreground">
@@ -191,6 +197,19 @@ function ManageTours() {
 							required
 						/>
 					</div>
+					<div className="space-y-2 sm:col-span-2 lg:col-span-3">
+						<Label htmlFor="tour-logo">Company logo URL</Label>
+						<Input
+							id="tour-logo"
+							type="url"
+							placeholder="https://…"
+							value={form.logo}
+							onChange={(e) => setForm((f) => ({ ...f, logo: e.target.value }))}
+						/>
+						<p className="text-muted-foreground text-[11px]">
+							Shown next to the company name on the welcome page.
+						</p>
+					</div>
 					<div className="space-y-2">
 						<Label htmlFor="tour-am">Ambassador</Label>
 						<select
@@ -204,7 +223,7 @@ function ManageTours() {
 							<option value="">None</option>
 							{ambassadors.map((p) => (
 								<option key={p.id} value={p.id}>
-									{p.first_name} {p.last_name} (#{p.id})
+									{formatNameSingleLine(p.first_name, p.last_name)} (#{p.id})
 								</option>
 							))}
 						</select>
@@ -235,10 +254,11 @@ function ManageTours() {
 				{loadError ? (
 					<p className="text-sm text-destructive">{loadError}</p>
 				) : (
-					<div className="border border-border">
+					<div className="overflow-x-auto border border-border">
 						<Table>
 							<TableHeader>
 								<TableRow>
+									<TableHead className="w-[52px]">Logo</TableHead>
 									<TableHead>Company</TableHead>
 									<TableHead>Start (CST)</TableHead>
 									<TableHead>Ambassador</TableHead>
@@ -249,6 +269,18 @@ function ManageTours() {
 							<TableBody>
 								{tours.map((r) => (
 									<TableRow key={r.id}>
+										<TableCell className="p-2">
+											{r.logo ? (
+												<img
+													src={r.logo}
+													alt=""
+													className="size-9 shrink-0 object-contain object-left"
+													loading="lazy"
+												/>
+											) : (
+												<span className="text-muted-foreground text-xs">—</span>
+											)}
+										</TableCell>
 										<TableCell className="font-medium">{r.company}</TableCell>
 										<TableCell className="text-muted-foreground text-xs">
 											{formatStartCst(r.start_time)}
@@ -298,7 +330,7 @@ function ManageTours() {
 					if (!open) setDeleteTarget(null);
 				}}
 			>
-				<AlertDialogContent>
+				<AlertDialogContent className="flex w-full max-w-md flex-col">
 					<AlertDialogHeader>
 						<AlertDialogTitle>Delete tour?</AlertDialogTitle>
 						<AlertDialogDescription>
@@ -326,11 +358,11 @@ function ManageTours() {
 			</AlertDialog>
 
 			<Dialog open={editOpen} onOpenChange={setEditOpen}>
-				<DialogContent className="w-full max-w-screen-2xl sm:max-w-screen-2xl">
+				<DialogContent className="flex min-h-0 min-w-0 w-full max-w-xl flex-col gap-4 overflow-hidden p-4 sm:p-6 sm:max-w-2xl">
 					<DialogHeader>
 						<DialogTitle>Edit tour</DialogTitle>
 					</DialogHeader>
-					<div className="grid gap-4 sm:grid-cols-2">
+					<div className="grid min-w-0 gap-4 sm:grid-cols-2">
 						<div className="space-y-2">
 							<Label htmlFor="ed-co">Company</Label>
 							<Input
@@ -338,6 +370,18 @@ function ManageTours() {
 								value={editForm.company}
 								onChange={(e) =>
 									setEditForm((f) => ({ ...f, company: e.target.value }))
+								}
+							/>
+						</div>
+						<div className="space-y-2 sm:col-span-2">
+							<Label htmlFor="ed-logo">Company logo URL</Label>
+							<Input
+								id="ed-logo"
+								type="url"
+								placeholder="https://…"
+								value={editForm.logo}
+								onChange={(e) =>
+									setEditForm((f) => ({ ...f, logo: e.target.value }))
 								}
 							/>
 						</div>
@@ -358,7 +402,8 @@ function ManageTours() {
 								{ambassadorSelectPeople(editing?.ambassador_id ?? null).map(
 									(p) => (
 										<option key={p.id} value={p.id}>
-											{p.first_name} {p.last_name} (#{p.id})
+											{formatNameSingleLine(p.first_name, p.last_name)} (#{p.id}
+											)
 										</option>
 									),
 								)}

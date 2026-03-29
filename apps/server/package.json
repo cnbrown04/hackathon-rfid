@@ -4,15 +4,20 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "dev": "node --watch index.js"
+    "dev": "node --watch index.js",
+    "fake-tour-event": "node scripts/push-fake-tour-event.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "description": "",
+  "engines": {
+    "node": "22.x"
+  },
   "dependencies": {
     "dotenv": "^17.3.1",
     "pg": "^8.20.0",
-    "ws": "^8.20.0"
+    "ws": "^8.20.0",
+    "yaml": "^2.8.3"
   }
 }

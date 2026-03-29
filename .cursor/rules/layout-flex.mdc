@@ -1,0 +1,26 @@
+---
+description: Layout uses flex/grid containers—no calculated widths in app code
+alwaysApply: true
+---
+
+# Layout: flex containers, no width math
+
+In application code (especially `apps/tour-frontend/src/**`), **do not** encode widths with CSS math in Tailwind arbitrary values, for example:
+
+- `w-[min(100vw-2rem,…)]`, `max-w-[calc(100%-…)]`, `max-w-[min(…)]`, or any `calc()` / `min()` / `max()` inside `[…]` for sizing.
+
+**Do** use:
+
+- **Flexbox and grid**: `flex`, `flex-col`, `flex-wrap`, `items-*`, `justify-*`, `gap-*`, `min-w-0`, `shrink-0`, `flex-1`, `grow`.
+- **Spacing**: `px-*`, `py-*`, `mx-auto`, padding on parents instead of subtracting from `100vw`.
+- **Semantic width tokens** from the Tailwind scale when a cap is needed: `w-full`, `min-w-0`, `shrink-0`, `max-w-sm` … `max-w-7xl`, `max-w-screen-*`, fixed `min-w-48`, etc.—not hand-tuned viewport formulas like `min(100vw - …)` or `calc(100% - …)` in arbitrary classes.
+
+Shadcn/UI primitives under `components/ui/` may keep their upstream styles unless we are deliberately aligning them with this rule.
+
+```tsx
+// ❌ Avoid in app routes and features
+<div className="max-w-[min(100vw-2rem,56rem)]" />
+
+// ✅ Prefer
+<div className="flex w-full min-w-0 max-w-4xl flex-col gap-4 px-4" />
+```

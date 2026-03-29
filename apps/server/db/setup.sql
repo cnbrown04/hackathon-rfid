@@ -46,6 +46,7 @@ ALTER TABLE tours
     ON DELETE SET NULL;
 
 ALTER TABLE tours ADD COLUMN IF NOT EXISTS start_time TIMESTAMPTZ;
+ALTER TABLE tours ADD COLUMN IF NOT EXISTS logo TEXT;
 
 -- Tour events: rich RFID read events from the reader
 CREATE TABLE IF NOT EXISTS tour_event (
