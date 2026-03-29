@@ -1,0 +1,11 @@
+---
+description: Never push to remotes without explicit user permission
+alwaysApply: true
+---
+
+# Git: no push without permission
+
+- **Do not** run `git push` to any remote (`origin`, `heroku`, `heroku-web`, etc.), **do not** open PRs that imply deploy, and **do not** run Heroku/CI deploy commands that publish code, **unless the user clearly asked** to push or deploy in this conversation.
+- It is fine to **prepare** work locally: stage files, create commits, show `git status` / diff, and **tell the user exactly what to run** if they want to publish.
+- If the user says “commit but don’t push” or similar, honor that strictly.
+- If unsure whether they want a remote update, **ask** before pushing.
