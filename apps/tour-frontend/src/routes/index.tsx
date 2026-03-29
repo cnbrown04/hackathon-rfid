@@ -25,6 +25,14 @@ function Home() {
 				>
 					<Link to="/antenna">Antenna flow</Link>
 				</Button>
+				<Button
+					asChild
+					size="lg"
+					variant="outline"
+					className="h-14 min-w-[12rem] px-10 text-lg md:h-16 md:min-w-[14rem] md:px-12 md:text-xl"
+				>
+					<Link to="/lidar">LiDAR shelf</Link>
+				</Button>
 			</div>
 		</main>
 	);

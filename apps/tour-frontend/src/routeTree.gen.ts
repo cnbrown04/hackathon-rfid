@@ -10,12 +10,18 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as WelcomeRouteImport } from './routes/welcome'
+import { Route as LidarRouteImport } from './routes/lidar'
 import { Route as AntennaRouteImport } from './routes/antenna'
 import { Route as IndexRouteImport } from './routes/index'
 
 const WelcomeRoute = WelcomeRouteImport.update({
   id: '/welcome',
   path: '/welcome',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LidarRoute = LidarRouteImport.update({
+  id: '/lidar',
+  path: '/lidar',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AntennaRoute = AntennaRouteImport.update({
@@ -32,30 +38,34 @@ const IndexRoute = IndexRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/antenna': typeof AntennaRoute
+  '/lidar': typeof LidarRoute
   '/welcome': typeof WelcomeRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/antenna': typeof AntennaRoute
+  '/lidar': typeof LidarRoute
   '/welcome': typeof WelcomeRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/antenna': typeof AntennaRoute
+  '/lidar': typeof LidarRoute
   '/welcome': typeof WelcomeRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/antenna' | '/welcome'
+  fullPaths: '/' | '/antenna' | '/lidar' | '/welcome'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/antenna' | '/welcome'
-  id: '__root__' | '/' | '/antenna' | '/welcome'
+  to: '/' | '/antenna' | '/lidar' | '/welcome'
+  id: '__root__' | '/' | '/antenna' | '/lidar' | '/welcome'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AntennaRoute: typeof AntennaRoute
+  LidarRoute: typeof LidarRoute
   WelcomeRoute: typeof WelcomeRoute
 }
 
@@ -66,6 +76,13 @@ declare module '@tanstack/react-router' {
       path: '/welcome'
       fullPath: '/welcome'
       preLoaderRoute: typeof WelcomeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/lidar': {
+      id: '/lidar'
+      path: '/lidar'
+      fullPath: '/lidar'
+      preLoaderRoute: typeof LidarRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/antenna': {
@@ -88,6 +105,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AntennaRoute: AntennaRoute,
+  LidarRoute: LidarRoute,
   WelcomeRoute: WelcomeRoute,
 }
 export const routeTree = rootRouteImport
