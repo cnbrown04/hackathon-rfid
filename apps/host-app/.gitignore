@@ -1,3 +1,5 @@
 Linux64_SDK_C_V5_5_7_12_JAVA_v1_4_0_51.tar
 linux64_sdk/samples/src/java/J_RFIDSample4/.env
 **/.env
+**/__pycache__/
+**/.venv/
