@@ -69,14 +69,16 @@ class FeatureMonitor:
             phase_delta = p.get("phase_delta_ant1_minus_ant2")
             c1 = p.get("count_ant1")
             c2 = p.get("count_ant2")
+            c3 = p.get("count_ant3")
 
             print(
-                "feature reader={} epc={} both={} count1={} count2={} rssi_d={} phase_d={}".format(
+                "feature reader={} epc={} both={} count1={} count2={} count3={} rssi_d={} phase_d={}".format(
                     reader_id,
                     epc,
                     both,
                     c1,
                     c2,
+                    c3,
                     fmt_num(rssi_delta),
                     fmt_num(phase_delta),
                 )

@@ -36,6 +36,7 @@ let wss;
 
 const LOCALIZATION_GRID_SIZE_FT = Number(process.env.LOCALIZATION_GRID_SIZE_FT || 6);
 const LOCALIZATION_READER_ID = process.env.LOCALIZATION_READER_ID || "localize";
+const LOCALIZATION_SITE_ID = process.env.LOCALIZATION_SITE_ID || "rfid-lab";
 const LOCALIZATION_FRESH_MS = Number(process.env.LOCALIZATION_FRESH_MS || 8000);
 const LOCALIZATION_REF_RSSI_DBM = Number(process.env.LOCALIZATION_REF_RSSI_DBM || -47);
 const LOCALIZATION_PATH_LOSS_N = Number(process.env.LOCALIZATION_PATH_LOSS_N || 2.2);
@@ -419,27 +420,25 @@ function computeLocalizationConfidence({ rmse, maxAgeMs, x, y }) {
   return Number((rmseScore * 0.7 + freshnessScore * 0.2 + boundsScore * 0.1).toFixed(4));
 }
 
-async function tryInsertLocalizationEventFromTourEvent(event) {
+async function tryInsertLocalizationEventFromLocalizeRead(event) {
   if (!event || !event.epc) return;
-  if (event.reader_id !== LOCALIZATION_READER_ID) return;
 
   const antennaId = Number(event.antenna_id);
   if (!Number.isInteger(antennaId) || !LOCALIZATION_ANCHORS[antennaId]) {
     return;
   }
 
-  const rssi = asFiniteNumber(event.avg_rssi_60s);
+  const rssi = asFiniteNumber(event.avg_rssi);
   if (rssi == null) return;
 
   const eventTsMs = parseEventMs(event.event_ts);
-  const tagKey = `${event.site_id || "site"}|${event.epc}`;
+  const tagKey = `${event.epc}`;
   const entry = localizationStateByTag.get(tagKey) || { antennas: {} };
-  entry.siteId = event.site_id || null;
-  entry.readerId = event.reader_id || null;
+  entry.siteId = LOCALIZATION_SITE_ID;
+  entry.readerId = LOCALIZATION_READER_ID;
   entry.epc = event.epc;
   entry.antennas[antennaId] = {
     rssi,
-    eventId: event.event_id || null,
     eventTs: event.event_ts || new Date(eventTsMs).toISOString(),
     eventTsMs,
   };
@@ -481,9 +480,9 @@ async function tryInsertLocalizationEventFromTourEvent(event) {
   const yFt = Number(clamp(solved.y, 0, LOCALIZATION_GRID_SIZE_FT).toFixed(4));
 
   const sourceEventIds = {
-    "localization-1": a1.eventId,
-    "localization-2": a2.eventId,
-    "localization-3": a3.eventId,
+    "localization-1": a1.eventTs,
+    "localization-2": a2.eventTs,
+    "localization-3": a3.eventTs,
   };
   const quality = {
     rmse_ft: Number(solved.rmse.toFixed(4)),
@@ -641,9 +640,11 @@ async function start() {
   // 2. Connect the LISTEN client
   await listener.connect();
   await listener.query("LISTEN new_event");
+  await listener.query("LISTEN new_localize");
   await listener.query("LISTEN new_localization_event");
   await listener.query("LISTEN new_localize");
   console.log("Listening for Postgres NOTIFY on channel: new_event");
+  console.log("Listening for Postgres NOTIFY on channel: new_localize");
   console.log("Listening for Postgres NOTIFY on channel: new_localization_event");
   console.log("Listening for Postgres NOTIFY on channel: new_localize");
 
@@ -667,7 +668,11 @@ async function start() {
     }
 
     if (msg.channel === "new_localize") {
-      broadcast({ type: "localize", data: payload });
+      try {
+        await tryInsertLocalizationEventFromLocalizeRead(payload);
+      } catch (err) {
+        console.error("Localize event processing error:", err);
+      }
       return;
     }
 
@@ -680,7 +685,6 @@ async function start() {
 
     try {
       await dispatchTourEventFromNotify(event);
-      await tryInsertLocalizationEventFromTourEvent(event);
     } catch (err) {
       console.error("Tour event dispatch error:", err);
     }

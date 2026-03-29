@@ -18,6 +18,10 @@ import org.eclipse.paho.client.mqttv3.MqttMessage;
 
 public class RFIDTourEventSubscriber implements MqttCallback {
 
+    private static final String LOCALIZE_READER_ID = "localize";
+    private static final boolean LOG_EACH_INSERT = parseBoolean(System.getenv("LOG_EACH_INSERT"));
+    private static final long STATS_LOG_INTERVAL_MS = parseLongEnv("STATS_LOG_INTERVAL_MS", 5000L);
+
     private static final String CREATE_TABLE_SQL =
             "CREATE TABLE IF NOT EXISTS tour_event ("
                     + "id BIGSERIAL PRIMARY KEY,"
@@ -50,6 +54,15 @@ public class RFIDTourEventSubscriber implements MqttCallback {
                     + "DROP COLUMN IF EXISTS epc_list_csv, "
                     + "DROP COLUMN IF EXISTS payload";
 
+    private static final String CREATE_LOCALIZE_TABLE_SQL =
+            "CREATE TABLE IF NOT EXISTS localize ("
+                    + "event_ts TIMESTAMPTZ NOT NULL,"
+                    + "antenna_id INTEGER NOT NULL,"
+                    + "epc TEXT NOT NULL,"
+                    + "avg_rssi DOUBLE PRECISION,"
+                    + "read_count BIGINT"
+                    + ")";
+
     private static final String INSERT_SQL =
             "INSERT INTO tour_event ("
                     + "event_id,event_type,event_ts,site_id,reader_id,antenna_id,tour_id,epc,"
@@ -58,6 +71,9 @@ public class RFIDTourEventSubscriber implements MqttCallback {
                     + "threshold_count_drop_pct,threshold_rssi_drop_db,consecutive_checks_required"
                     + ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
                     + "ON CONFLICT (event_id) DO NOTHING";
+
+    private static final String INSERT_LOCALIZE_SQL =
+            "INSERT INTO localize (event_ts, antenna_id, epc, avg_rssi, read_count) VALUES (?,?,?,?,?)";
 
     private final String mqttBrokerUrl;
     private final String mqttTopic;
@@ -73,6 +89,10 @@ public class RFIDTourEventSubscriber implements MqttCallback {
     private MqttClient mqttClient;
     private Connection pgConnection;
     private PreparedStatement insertStatement;
+    private PreparedStatement insertLocalizeStatement;
+    private long insertedCount;
+    private long insertErrorCount;
+    private long lastStatsLogMs;
 
     public RFIDTourEventSubscriber(
             String mqttBrokerUrl,
@@ -174,13 +194,15 @@ public class RFIDTourEventSubscriber implements MqttCallback {
                 st = pgConnection.createStatement();
                 st.execute(CREATE_TABLE_SQL);
                 st.execute(MIGRATE_TABLE_SQL);
+                st.execute(CREATE_LOCALIZE_TABLE_SQL);
             } finally {
                 closeQuietly(st);
             }
-            System.out.println("Ensured table tour_event exists.");
+            System.out.println("Ensured tables tour_event and localize exist.");
         }
 
         insertStatement = pgConnection.prepareStatement(INSERT_SQL);
+        insertLocalizeStatement = pgConnection.prepareStatement(INSERT_LOCALIZE_SQL);
 
         mqttClient = new MqttClient(mqttBrokerUrl, mqttClientId);
         mqttClient.setCallback(this);
@@ -212,6 +234,7 @@ public class RFIDTourEventSubscriber implements MqttCallback {
         }
 
         closeQuietly(insertStatement);
+        closeQuietly(insertLocalizeStatement);
         closeQuietly(pgConnection);
     }
 
@@ -222,30 +245,63 @@ public class RFIDTourEventSubscriber implements MqttCallback {
     public void messageArrived(String topic, MqttMessage message) {
         String payload = new String(message.getPayload());
         try {
-            insertEvent(payload);
-            System.out.println("Inserted event from topic " + topic);
+            String targetTable = insertEvent(topic, payload);
+            insertedCount++;
+            if (LOG_EACH_INSERT) {
+                System.out.println("Inserted event into " + targetTable + " from topic " + topic);
+            }
         } catch (Exception ex) {
+            insertErrorCount++;
             System.err.println("Insert failed for topic " + topic + ": " + ex.getMessage());
+        } finally {
+            maybeLogStats();
         }
+    }
+
+    private void maybeLogStats() {
+        long nowMs = System.currentTimeMillis();
+        if (lastStatsLogMs == 0L) {
+            lastStatsLogMs = nowMs;
+            return;
+        }
+        if (nowMs - lastStatsLogMs < STATS_LOG_INTERVAL_MS) {
+            return;
+        }
+        System.out.println(
+                "subscriber stats inserted=" + insertedCount + " errors=" + insertErrorCount + " topic=" + mqttTopic);
+        lastStatsLogMs = nowMs;
     }
 
     public void deliveryComplete(IMqttDeliveryToken token) {
     }
 
-    private void insertEvent(String payload) throws SQLException {
+    private String insertEvent(String topic, String payload) throws SQLException {
+        String payloadReaderId = normalizeReaderId(jsonString(payload, "reader_id"));
+        String topicReaderId = normalizeReaderId(readerIdFromTopic(topic));
+        String readerId = payloadReaderId.length() > 0 ? payloadReaderId : topicReaderId;
+        Timestamp eventTs = parseEventTs(defaultString(jsonString(payload, "event_ts"), null));
+
+        if (LOCALIZE_READER_ID.equals(readerId) || LOCALIZE_READER_ID.equals(topicReaderId)) {
+            Integer antennaId = jsonInteger(payload, "antenna_id");
+            String epc = jsonString(payload, "epc");
+            Double avgRssi = jsonDouble(payload, "avg_rssi_60s");
+            Long readCount = jsonLong(payload, "read_count_60s");
+            insertLocalizeEvent(eventTs, antennaId, epc, avgRssi, readCount);
+            return "localize";
+        }
+
         String eventId = jsonString(payload, "event_id");
         if (eventId == null || eventId.length() == 0) {
             throw new SQLException("Missing required event_id in payload");
         }
 
         String eventType = defaultString(jsonString(payload, "event_type"), "TOUR_GROUP_DEPARTING");
-        Timestamp eventTs = parseEventTs(defaultString(jsonString(payload, "event_ts"), null));
 
         insertStatement.setObject(1, UUID.fromString(eventId));
         insertStatement.setString(2, eventType);
         insertStatement.setTimestamp(3, eventTs);
         insertStatement.setString(4, jsonString(payload, "site_id"));
-        insertStatement.setString(5, jsonString(payload, "reader_id"));
+        insertStatement.setString(5, readerId);
         setIntegerOrNull(insertStatement, 6, jsonInteger(payload, "antenna_id"));
         insertStatement.setString(7, jsonString(payload, "tour_id"));
         insertStatement.setString(8, jsonString(payload, "epc"));
@@ -262,6 +318,47 @@ public class RFIDTourEventSubscriber implements MqttCallback {
         setDoubleOrNull(insertStatement, 19, jsonDouble(payload, "threshold_rssi_drop_db"));
         setIntegerOrNull(insertStatement, 20, jsonInteger(payload, "consecutive_checks_required"));
         insertStatement.executeUpdate();
+        return "tour_event";
+    }
+
+    private static String readerIdFromTopic(String topic) {
+        if (topic == null) {
+            return "";
+        }
+        String[] parts = topic.split("/");
+        if (parts.length >= 3) {
+            return parts[2];
+        }
+        return "";
+    }
+
+    private static String normalizeReaderId(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.trim().toLowerCase();
+    }
+
+    private void insertLocalizeEvent(
+            Timestamp eventTs,
+            Integer antennaId,
+            String epc,
+            Double avgRssi,
+            Long readCount)
+            throws SQLException {
+        if (antennaId == null) {
+            throw new SQLException("Missing required antenna_id for localize event");
+        }
+        if (epc == null || epc.length() == 0) {
+            throw new SQLException("Missing required epc for localize event");
+        }
+
+        insertLocalizeStatement.setTimestamp(1, eventTs);
+        insertLocalizeStatement.setInt(2, antennaId.intValue());
+        insertLocalizeStatement.setString(3, epc);
+        setDoubleOrNull(insertLocalizeStatement, 4, avgRssi);
+        setLongOrNull(insertLocalizeStatement, 5, readCount);
+        insertLocalizeStatement.executeUpdate();
     }
 
     private static void setIntegerOrNull(PreparedStatement ps, int idx, Integer value) throws SQLException {
@@ -393,6 +490,18 @@ public class RFIDTourEventSubscriber implements MqttCallback {
         try {
             conn.close();
         } catch (Exception ex) {
+        }
+    }
+
+    private static long parseLongEnv(String key, long defaultValue) {
+        String raw = System.getenv(key);
+        if (raw == null || raw.trim().length() == 0) {
+            return defaultValue;
+        }
+        try {
+            return Long.parseLong(raw.trim());
+        } catch (Exception ex) {
+            return defaultValue;
         }
     }
 }

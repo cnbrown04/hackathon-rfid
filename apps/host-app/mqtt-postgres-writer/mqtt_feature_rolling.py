@@ -111,7 +111,7 @@ class FeatureService:
             ensure_payload(payload)
 
             antenna_id = as_int(payload["antenna_id"], "antenna_id")
-            if antenna_id not in (1, 2):
+            if antenna_id not in (1, 2, 3):
                 self.events_ignored_antenna += 1
                 return
 
@@ -129,6 +129,7 @@ class FeatureService:
                 self.state[key] = {
                     1: deque(),
                     2: deque(),
+                    3: deque(),
                     "last_seen_ms": ts_host_ms,
                 }
 
@@ -145,7 +146,7 @@ class FeatureService:
 
     def prune_key(self, key, now_ms):
         cutoff = now_ms - self.args.window_ms
-        for antenna_id in (1, 2):
+        for antenna_id in (1, 2, 3):
             q = self.state[key][antenna_id]
             while q and q[0][0] < cutoff:
                 q.popleft()
@@ -157,8 +158,9 @@ class FeatureService:
             self.prune_key(key, now_ms)
             ant1 = list(record[1])
             ant2 = list(record[2])
+            ant3 = list(record[3])
 
-            if not ant1 and not ant2:
+            if not ant1 and not ant2 and not ant3:
                 last_seen_ms = int(record.get("last_seen_ms", 0))
                 if now_ms - last_seen_ms > self.args.idle_ttl_ms:
                     to_delete.append(key)
@@ -171,6 +173,7 @@ class FeatureService:
                 epc=epc,
                 ant1=ant1,
                 ant2=ant2,
+                ant3=ant3,
             )
 
             topic = (
@@ -198,20 +201,25 @@ class FeatureService:
             print("Feature publish failed topic={} err={}".format(topic, ex), file=sys.stderr)
 
 
-def build_feature_payload(now_ms, window_ms, reader_id, epc, ant1, ant2):
+def build_feature_payload(now_ms, window_ms, reader_id, epc, ant1, ant2, ant3):
     rssi1 = [x[1] for x in ant1]
     rssi2 = [x[1] for x in ant2]
+    rssi3 = [x[1] for x in ant3]
     phase1 = [x[2] for x in ant1]
     phase2 = [x[2] for x in ant2]
+    phase3 = [x[2] for x in ant3]
 
     count_ant1 = len(ant1)
     count_ant2 = len(ant2)
+    count_ant3 = len(ant3)
     both = count_ant1 > 0 and count_ant2 > 0
 
     rssi_mean_ant1 = mean_or_none(rssi1)
     rssi_mean_ant2 = mean_or_none(rssi2)
+    rssi_mean_ant3 = mean_or_none(rssi3)
     phase_mean_ant1 = mean_or_none(phase1)
     phase_mean_ant2 = mean_or_none(phase2)
+    phase_mean_ant3 = mean_or_none(phase3)
 
     return {
         "feature_version": 1,
@@ -221,23 +229,29 @@ def build_feature_payload(now_ms, window_ms, reader_id, epc, ant1, ant2):
         "epc": epc,
         "count_ant1": count_ant1,
         "count_ant2": count_ant2,
+        "count_ant3": count_ant3,
         "both_antennas_present": both,
         "rssi_mean_ant1": rounded_or_none(rssi_mean_ant1),
         "rssi_mean_ant2": rounded_or_none(rssi_mean_ant2),
+        "rssi_mean_ant3": rounded_or_none(rssi_mean_ant3),
         "rssi_std_ant1": rounded_or_none(stddev_or_none(rssi1)),
         "rssi_std_ant2": rounded_or_none(stddev_or_none(rssi2)),
+        "rssi_std_ant3": rounded_or_none(stddev_or_none(rssi3)),
         "rssi_delta_ant1_minus_ant2": rounded_or_none(
             delta_or_none(rssi_mean_ant1, rssi_mean_ant2)
         ),
         "phase_mean_ant1": rounded_or_none(phase_mean_ant1),
         "phase_mean_ant2": rounded_or_none(phase_mean_ant2),
+        "phase_mean_ant3": rounded_or_none(phase_mean_ant3),
         "phase_std_ant1": rounded_or_none(stddev_or_none(phase1)),
         "phase_std_ant2": rounded_or_none(stddev_or_none(phase2)),
+        "phase_std_ant3": rounded_or_none(stddev_or_none(phase3)),
         "phase_delta_ant1_minus_ant2": rounded_or_none(
             delta_or_none(phase_mean_ant1, phase_mean_ant2)
         ),
         "age_ms_ant1": age_ms_or_none(ant1, now_ms),
         "age_ms_ant2": age_ms_or_none(ant2, now_ms),
+        "age_ms_ant3": age_ms_or_none(ant3, now_ms),
     }
 
 

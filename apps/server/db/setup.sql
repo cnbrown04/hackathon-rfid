@@ -74,6 +74,15 @@ CREATE TABLE IF NOT EXISTS tour_event (
   created_at                  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Lightweight localize reader events (real-time trilateration input)
+CREATE TABLE IF NOT EXISTS localize (
+  event_ts      TIMESTAMPTZ NOT NULL,
+  antenna_id    INTEGER NOT NULL,
+  epc           TEXT NOT NULL,
+  avg_rssi      DOUBLE PRECISION,
+  read_count    BIGINT
+);
+
 -- Localization outputs derived from tour_event stream trilateration
 CREATE TABLE IF NOT EXISTS localization_event (
   id               BIGSERIAL PRIMARY KEY,
@@ -109,6 +118,14 @@ CREATE OR REPLACE FUNCTION notify_new_localization_event()
 RETURNS TRIGGER AS $$
 BEGIN
   PERFORM pg_notify('new_localization_event', row_to_json(NEW)::text);
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION notify_new_localize()
+RETURNS TRIGGER AS $$
+BEGIN
+  PERFORM pg_notify('new_localize', row_to_json(NEW)::text);
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;

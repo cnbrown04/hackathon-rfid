@@ -15777,4 +15777,9 @@
 03-29-2026, 04:57:05.00081 (489822ms)	ERR	rfid_DeallocateTags                	[378]	Invalid parameter given. tagCount is 0
 03-29-2026, 05:03:43.00955 (398874ms)	ERR	rfid_DeallocateTags                	[378]	Invalid parameter given. tagCount is 0
 03-29-2026, 05:09:36.00481 (352526ms)	ERR	rfid_DeallocateTags                	[378]	Invalid parameter given. tagCount is 0
-03-29-2026, 05:19:31.00860 (595379ms)	ERR	rfid_DeallocateTags                	[378]	Invalid parameter given. tagCount is 0
+03-29-2026, 05:19:31.00860 (595379ms)	ERR	rfid_DeallocateTags                	[378]	Invalid parameter given. tagCount is 003-29-2026, 05:43:52.00109 (Begin   )	ERR	rfid_DeallocateTags                	[378]	Invalid parameter given. tagCount is 0
+03-29-2026, 05:45:11.00327 (079218ms)	ERR	rfid_DeallocateTags                	[378]	Invalid parameter given. tagCount is 0
+03-29-2026, 05:50:49.00682 (338355ms)	ERR	deregisterNotificationsAndCleanup  	[958]	No Connection exists to the Host. 
+03-29-2026, 05:56:50.00743 (Begin   )	ERR	deregisterNotificationsAndCleanup  	[958]	No Connection exists to the Host. 
+03-29-2026, 05:56:53.00797 (Begin   )	ERR	deregisterNotificationsAndCleanup  	[958]	No Connection exists to the Host. 
+03-29-2026, 06:54:52.00014 (Begin   )	ERR	deregisterNotificationsAndCleanup  	[958]	No Connection exists to the Host. 

@@ -72,6 +72,8 @@ public class RFIDTourPublisher {
 
     private final ConcurrentHashMap<AggregationKey, RollingAggregation> aggregations =
             new ConcurrentHashMap<AggregationKey, RollingAggregation>();
+    private final ConcurrentHashMap<AggregationKey, PublishGateState> publishGateStates =
+            new ConcurrentHashMap<AggregationKey, PublishGateState>();
     private final Set<String> allowedEpcs = java.util.Collections.newSetFromMap(
             new ConcurrentHashMap<String, Boolean>());
 
@@ -121,12 +123,14 @@ public class RFIDTourPublisher {
         AntennaInfo antennaInfo = new AntennaInfo(activeAntennas);
 
         running = true;
-        evaluator = Executors.newSingleThreadScheduledExecutor();
-        evaluator.scheduleAtFixedRate(new Runnable() {
-            public void run() {
-                evaluateAndPublish();
-            }
-        }, config.checkSeconds, config.checkSeconds, TimeUnit.SECONDS);
+        if (!config.emitPerRead) {
+            evaluator = Executors.newSingleThreadScheduledExecutor();
+            evaluator.scheduleAtFixedRate(new Runnable() {
+                public void run() {
+                    evaluateAndPublish();
+                }
+            }, config.checkSeconds, config.checkSeconds, TimeUnit.SECONDS);
+        }
 
         inventoryStopped = false;
         reader.Actions.Inventory.perform(null, triggerInfo, antennaInfo);
@@ -360,6 +364,12 @@ public class RFIDTourPublisher {
             }
 
             AggregationKey key = new AggregationKey(config.siteId, config.readerId, antennaId, epc);
+
+            if (config.emitPerRead) {
+                publishReadEvent(key, rssi, nowSec, config.emitPerReadEventType);
+                continue;
+            }
+
             RollingAggregation agg = aggregations.get(key);
             if (agg == null) {
                 RollingAggregation created = new RollingAggregation();
@@ -380,9 +390,27 @@ public class RFIDTourPublisher {
         }
     }
 
+    private void publishReadEvent(AggregationKey key, int rssi, long nowSec, String eventType) {
+        Evaluation eval = new Evaluation();
+        eval.windowStartSec = nowSec;
+        eval.windowEndSec = nowSec;
+        eval.windowReadCount = 1L;
+        eval.uniqueTagCount = 1L;
+        eval.windowAvgRssi = rssi;
+        eval.baselineReadCount = 1.0;
+        eval.baselineAvgRssi = rssi;
+        eval.countDropPct = 0.0;
+        eval.rssiDropDb = 0.0;
+        eval.secondsSinceLastRead = 0L;
+        eval.dwellSeconds = 0L;
+        eval.minDwellSeconds = 0L;
+        publishEvent(key, eval, eventType);
+    }
+
     private void evaluateAndPublish() {
         try {
             long nowSec = System.currentTimeMillis() / 1000L;
+            long nowMs = System.currentTimeMillis();
             Iterator<Map.Entry<AggregationKey, RollingAggregation>> it = aggregations.entrySet().iterator();
             while (it.hasNext()) {
                 Map.Entry<AggregationKey, RollingAggregation> entry = it.next();
@@ -395,17 +423,65 @@ public class RFIDTourPublisher {
                         config.secondsSinceLastRead,
                         config.minDwellSeconds);
 
-                if (eval.shouldEmit) {
+                if (config.emitEveryCheck) {
+                    if (eval.windowReadCount > 0L) {
+                        if (shouldPublishEveryCheck(key, eval, nowMs)) {
+                            publishEvent(key, eval, config.emitEveryCheckEventType);
+                        }
+                    }
+                } else if (eval.shouldEmit) {
                     publishEvent(key, eval, "TOUR_GROUP_DEPARTING");
                 }
 
                 if (eval.isIdle) {
                     it.remove();
+                    publishGateStates.remove(key);
                 }
             }
         } catch (Exception ex) {
             System.err.println("Evaluator error: " + ex.getMessage());
         }
+    }
+
+    private boolean shouldPublishEveryCheck(AggregationKey key, Evaluation eval, long nowMs) {
+        PublishGateState state = publishGateStates.get(key);
+        if (state == null) {
+            publishGateStates.put(key, new PublishGateState(nowMs, eval.windowAvgRssi, eval.windowReadCount));
+            return true;
+        }
+
+        long sinceLast = nowMs - state.lastPublishedMs;
+        if (sinceLast >= config.emitEveryCheckMaxSilenceMs) {
+            state.lastPublishedMs = nowMs;
+            state.lastAvgRssi = eval.windowAvgRssi;
+            state.lastReadCount = eval.windowReadCount;
+            return true;
+        }
+
+        if (sinceLast < config.emitEveryCheckMinIntervalMs) {
+            return false;
+        }
+
+        double rssiDeltaDb = Math.abs(eval.windowAvgRssi - state.lastAvgRssi);
+        double readDeltaPct;
+        if (state.lastReadCount <= 0L) {
+            readDeltaPct = 100.0;
+        } else {
+            readDeltaPct =
+                    (Math.abs((double) eval.windowReadCount - (double) state.lastReadCount)
+                                    / (double) state.lastReadCount)
+                            * 100.0;
+        }
+
+        if (rssiDeltaDb >= config.emitEveryCheckMinRssiDeltaDb
+                || readDeltaPct >= config.emitEveryCheckMinReadDeltaPct) {
+            state.lastPublishedMs = nowMs;
+            state.lastAvgRssi = eval.windowAvgRssi;
+            state.lastReadCount = eval.windowReadCount;
+            return true;
+        }
+
+        return false;
     }
 
     private void publishEvent(AggregationKey key, Evaluation eval, String eventType) {
@@ -960,6 +1036,14 @@ public class RFIDTourPublisher {
         private String mqttPassword;
         private boolean logReads;
         private boolean logUnknownReads;
+        private boolean emitEveryCheck;
+        private String emitEveryCheckEventType;
+        private int emitEveryCheckMinIntervalMs;
+        private int emitEveryCheckMaxSilenceMs;
+        private double emitEveryCheckMinRssiDeltaDb;
+        private double emitEveryCheckMinReadDeltaPct;
+        private boolean emitPerRead;
+        private String emitPerReadEventType;
         private Map<Integer, Short> perAntennaTransmitPowerIndex;
         private List<String> prefilterEpcs;
         private Set<String> ignoredEpcs;
@@ -1018,6 +1102,17 @@ public class RFIDTourPublisher {
             cfg.mqttPassword = args.length > 15 ? args[15] : "";
             cfg.logReads = args.length > 16 && parseBooleanArg(args[16]);
             cfg.logUnknownReads = args.length > 17 && parseBooleanArg(args[17]);
+            cfg.emitEveryCheck = args.length > 18 && parseBooleanArg(args[18]);
+            cfg.emitEveryCheckEventType = args.length > 19 ? args[19] : "TOUR_WINDOW_UPDATE";
+            if (cfg.emitEveryCheckEventType == null || cfg.emitEveryCheckEventType.trim().length() == 0) {
+                cfg.emitEveryCheckEventType = "TOUR_WINDOW_UPDATE";
+            }
+            cfg.emitEveryCheckMinIntervalMs = 1000;
+            cfg.emitEveryCheckMaxSilenceMs = 2500;
+            cfg.emitEveryCheckMinRssiDeltaDb = 1.5;
+            cfg.emitEveryCheckMinReadDeltaPct = 25.0;
+            cfg.emitPerRead = false;
+            cfg.emitPerReadEventType = "TOUR_TAG_READ";
             cfg.perAntennaTransmitPowerIndex = new HashMap<Integer, Short>();
             cfg.prefilterEpcs = new ArrayList<String>();
             cfg.ignoredEpcs = new HashSet<String>();
@@ -1067,6 +1162,36 @@ public class RFIDTourPublisher {
 
             cfg.logReads = parseBooleanArg(getOptional(props, "debug.logReads", "false"));
             cfg.logUnknownReads = parseBooleanArg(getOptional(props, "debug.logUnknownReads", "false"));
+            cfg.emitEveryCheck = parseBooleanArg(getOptional(props, "event.emitEveryCheck", "false"));
+            cfg.emitEveryCheckEventType = getOptional(props, "event.emitEveryCheckType", "TOUR_WINDOW_UPDATE");
+            if (cfg.emitEveryCheckEventType == null || cfg.emitEveryCheckEventType.trim().length() == 0) {
+                cfg.emitEveryCheckEventType = "TOUR_WINDOW_UPDATE";
+            }
+            cfg.emitEveryCheckMinIntervalMs =
+                    parseInt(getOptional(props, "event.emitEveryCheckMinIntervalMs", "1000"));
+            cfg.emitEveryCheckMaxSilenceMs =
+                    parseInt(getOptional(props, "event.emitEveryCheckMaxSilenceMs", "2500"));
+            cfg.emitEveryCheckMinRssiDeltaDb =
+                    parseDouble(getOptional(props, "event.emitEveryCheckMinRssiDeltaDb", "1.5"));
+            cfg.emitEveryCheckMinReadDeltaPct =
+                    parseDouble(getOptional(props, "event.emitEveryCheckMinReadDeltaPct", "25.0"));
+            if (cfg.emitEveryCheckMinIntervalMs < 100) {
+                cfg.emitEveryCheckMinIntervalMs = 100;
+            }
+            if (cfg.emitEveryCheckMaxSilenceMs < cfg.emitEveryCheckMinIntervalMs) {
+                cfg.emitEveryCheckMaxSilenceMs = cfg.emitEveryCheckMinIntervalMs;
+            }
+            if (cfg.emitEveryCheckMinRssiDeltaDb < 0.0) {
+                cfg.emitEveryCheckMinRssiDeltaDb = 0.0;
+            }
+            if (cfg.emitEveryCheckMinReadDeltaPct < 0.0) {
+                cfg.emitEveryCheckMinReadDeltaPct = 0.0;
+            }
+            cfg.emitPerRead = parseBooleanArg(getOptional(props, "event.emitPerRead", "false"));
+            cfg.emitPerReadEventType = getOptional(props, "event.emitPerReadType", "TOUR_TAG_READ");
+            if (cfg.emitPerReadEventType == null || cfg.emitPerReadEventType.trim().length() == 0) {
+                cfg.emitPerReadEventType = "TOUR_TAG_READ";
+            }
             cfg.prefilterEpcs = parseEpcList(getOptional(props, "prefilter.epcs", ""));
             cfg.ignoredEpcs = new HashSet<String>(parseEpcList(getOptional(props, "filter.ignoreEpcs", "")));
 
@@ -1173,14 +1298,26 @@ public class RFIDTourPublisher {
         private static void printUsage() {
             System.err.println(
                     "Usage: RFIDTourPublisher HOST PORT MQTT_BROKER_URL MQTT_TOPIC_ROOT EPC_CSV "
-                            + "[DEFAULT_TOUR_ID_UNUSED] [RUN_MS] [SECONDS_SINCE_LAST_READ] [MIN_DWELL_SEC] [WINDOW_SEC] [CHECK_SEC] [SITE_ID] [READER_ID] [MQTT_CLIENT_ID] [MQTT_USER] [MQTT_PASS] "
-                            + "[LOG_READS] [LOG_UNKNOWN_READS]");
+                             + "[DEFAULT_TOUR_ID_UNUSED] [RUN_MS] [SECONDS_SINCE_LAST_READ] [MIN_DWELL_SEC] [WINDOW_SEC] [CHECK_SEC] [SITE_ID] [READER_ID] [MQTT_CLIENT_ID] [MQTT_USER] [MQTT_PASS] "
+                            + "[LOG_READS] [LOG_UNKNOWN_READS] [EMIT_EVERY_CHECK] [EMIT_EVERY_CHECK_EVENT_TYPE]");
             System.err.println("Config mode: RFIDTourPublisher --config /path/to/tour-publisher-localize.properties");
             System.err.println("  Exact EPC matching only. Unknown EPCs are ignored.");
             System.err.println("  CSV format: EPC (or EPC,TOUR_ID; second column ignored)");
             System.err.println(
                     "  Config: epc.mapUrl (HTTP GET, same CSV body) then epc.mapCsv; if still empty, fallback EPCs.");
             System.err.println("  LOG_READS/LOG_UNKNOWN_READS accepted true|false|1|0|yes|no.");
+        }
+    }
+
+    private static class PublishGateState {
+        private long lastPublishedMs;
+        private double lastAvgRssi;
+        private long lastReadCount;
+
+        private PublishGateState(long lastPublishedMs, double lastAvgRssi, long lastReadCount) {
+            this.lastPublishedMs = lastPublishedMs;
+            this.lastAvgRssi = lastAvgRssi;
+            this.lastReadCount = lastReadCount;
         }
     }
 }
