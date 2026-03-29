@@ -173,6 +173,7 @@ async function start() {
 
     // reader-3 is the lidar shelf reader — look up product and broadcast
     if (event.reader_id === "reader-3" && event.epc) {
+      console.log("[lidar] reader-3 event, EPC:", event.epc);
       try {
         const result = await pool.query(
           "SELECT * FROM lidar_items WHERE epc = $1",
@@ -180,6 +181,7 @@ async function start() {
         );
         if (result.rows.length > 0) {
           const item = result.rows[0];
+          console.log("[lidar] Match found:", item.item_desc, "— broadcasting lidar_scan");
           broadcast({
             type: "lidar_scan",
             data: {
@@ -189,6 +191,8 @@ async function start() {
               item_desc: item.item_desc,
             },
           });
+        } else {
+          console.log("[lidar] No match in lidar_items for EPC:", event.epc);
         }
       } catch (err) {
         console.error("Lidar lookup error:", err);
