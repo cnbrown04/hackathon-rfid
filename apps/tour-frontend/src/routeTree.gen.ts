@@ -18,6 +18,7 @@ import { Route as AdminIndexRouteImport } from './routes/admin/index'
 import { Route as AdminToursRouteImport } from './routes/admin/tours'
 import { Route as AdminSimulateRouteImport } from './routes/admin/simulate'
 import { Route as AdminPeopleRouteImport } from './routes/admin/people'
+import { Route as AdminApiRouteImport } from './routes/admin/api'
 
 const WelcomeRoute = WelcomeRouteImport.update({
   id: '/welcome',
@@ -64,6 +65,11 @@ const AdminPeopleRoute = AdminPeopleRouteImport.update({
   path: '/people',
   getParentRoute: () => AdminRouteRoute,
 } as any)
+const AdminApiRoute = AdminApiRouteImport.update({
+  id: '/api',
+  path: '/api',
+  getParentRoute: () => AdminRouteRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -71,6 +77,7 @@ export interface FileRoutesByFullPath {
   '/antenna': typeof AntennaRoute
   '/lidar': typeof LidarRoute
   '/welcome': typeof WelcomeRoute
+  '/admin/api': typeof AdminApiRoute
   '/admin/people': typeof AdminPeopleRoute
   '/admin/simulate': typeof AdminSimulateRoute
   '/admin/tours': typeof AdminToursRoute
@@ -81,6 +88,7 @@ export interface FileRoutesByTo {
   '/antenna': typeof AntennaRoute
   '/lidar': typeof LidarRoute
   '/welcome': typeof WelcomeRoute
+  '/admin/api': typeof AdminApiRoute
   '/admin/people': typeof AdminPeopleRoute
   '/admin/simulate': typeof AdminSimulateRoute
   '/admin/tours': typeof AdminToursRoute
@@ -93,6 +101,7 @@ export interface FileRoutesById {
   '/antenna': typeof AntennaRoute
   '/lidar': typeof LidarRoute
   '/welcome': typeof WelcomeRoute
+  '/admin/api': typeof AdminApiRoute
   '/admin/people': typeof AdminPeopleRoute
   '/admin/simulate': typeof AdminSimulateRoute
   '/admin/tours': typeof AdminToursRoute
@@ -106,6 +115,7 @@ export interface FileRouteTypes {
     | '/antenna'
     | '/lidar'
     | '/welcome'
+    | '/admin/api'
     | '/admin/people'
     | '/admin/simulate'
     | '/admin/tours'
@@ -116,6 +126,7 @@ export interface FileRouteTypes {
     | '/antenna'
     | '/lidar'
     | '/welcome'
+    | '/admin/api'
     | '/admin/people'
     | '/admin/simulate'
     | '/admin/tours'
@@ -127,6 +138,7 @@ export interface FileRouteTypes {
     | '/antenna'
     | '/lidar'
     | '/welcome'
+    | '/admin/api'
     | '/admin/people'
     | '/admin/simulate'
     | '/admin/tours'
@@ -206,10 +218,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminPeopleRouteImport
       parentRoute: typeof AdminRouteRoute
     }
+    '/admin/api': {
+      id: '/admin/api'
+      path: '/api'
+      fullPath: '/admin/api'
+      preLoaderRoute: typeof AdminApiRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
   }
 }
 
 interface AdminRouteRouteChildren {
+  AdminApiRoute: typeof AdminApiRoute
   AdminPeopleRoute: typeof AdminPeopleRoute
   AdminSimulateRoute: typeof AdminSimulateRoute
   AdminToursRoute: typeof AdminToursRoute
@@ -217,6 +237,7 @@ interface AdminRouteRouteChildren {
 }
 
 const AdminRouteRouteChildren: AdminRouteRouteChildren = {
+  AdminApiRoute: AdminApiRoute,
   AdminPeopleRoute: AdminPeopleRoute,
   AdminSimulateRoute: AdminSimulateRoute,
   AdminToursRoute: AdminToursRoute,

@@ -1,8 +1,21 @@
 require("dotenv").config();
 const crypto = require("crypto");
+const fs = require("fs");
+const path = require("path");
 const { Pool, Client } = require("pg");
 const { WebSocketServer } = require("ws");
+const { parse: parseYaml } = require("yaml");
 const { buildFakeTourEventBody, insertFullTourEvent } = require("./lib/tour-event-fake");
+
+/** Parsed `openapi.yaml`, loaded once at first request to GET /openapi.json */
+let openApiSpecCache = null;
+function getOpenApiSpec() {
+  if (openApiSpecCache) return openApiSpecCache;
+  const yamlPath = path.join(__dirname, "openapi.yaml");
+  const raw = fs.readFileSync(yamlPath, "utf8");
+  openApiSpecCache = parseYaml(raw);
+  return openApiSpecCache;
+}
 
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "RFIDLab123!";
 
@@ -229,6 +242,22 @@ const httpServer = http.createServer(async (req, res) => {
   }
 
   const pathname = new URL(req.url, "http://localhost").pathname;
+
+  // GET /openapi.json — OpenAPI document as JSON (admin UI, codegen, etc.)
+  if (req.method === "GET" && pathname === "/openapi.json") {
+    try {
+      const spec = getOpenApiSpec();
+      res.writeHead(200, {
+        "Content-Type": "application/json; charset=utf-8",
+        "Cache-Control": "no-store",
+      });
+      res.end(JSON.stringify(spec));
+    } catch (err) {
+      console.error("OpenAPI spec:", err);
+      json(res, 500, { error: "OpenAPI spec unavailable" });
+    }
+    return;
+  }
 
   // GET /api/epc-tour-map — EPC → tour UUID from people (for RFID host aggregator on startup)
   if (req.method === "GET" && pathname === "/api/epc-tour-map") {
@@ -672,54 +701,6 @@ const httpServer = http.createServer(async (req, res) => {
         res.end(JSON.stringify(result.rows[0]));
       } catch (err) {
         console.error("Insert error:", err);
-        res.writeHead(500, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ error: "Internal server error" }));
-      }
-    });
-    return;
-  }
-
-  // POST /welcome — reader near entrance picks up name tag EPCs, look up attendee and broadcast
-  if (req.method === "POST" && req.url === "/welcome") {
-    let body = "";
-    req.on("data", (chunk) => (body += chunk));
-    req.on("end", async () => {
-      try {
-        const { epc, reader_id } = JSON.parse(body);
-        if (!epc) {
-          res.writeHead(400, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({ error: "epc is required" }));
-          return;
-        }
-
-        // Look up who this tag belongs to
-        const attendee = await pool.query(
-          "SELECT * FROM people WHERE epc = $1",
-          [epc]
-        );
-
-        if (attendee.rows.length === 0) {
-          res.writeHead(404, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({ error: "Unknown tag", epc }));
-          return;
-        }
-
-        // Log the welcome event
-        await pool.query(
-          `INSERT INTO tour_event (event_id, event_type, event_ts, reader_id, epc)
-           VALUES (gen_random_uuid(), 'welcome', NOW(), $1, $2)`,
-          [reader_id || "welcome-antenna", epc]
-        );
-
-        const person = attendee.rows[0];
-        await broadcastWelcomeForEpc(epc);
-
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(
-          JSON.stringify({ welcomed: person.first_name + " " + person.last_name })
-        );
-      } catch (err) {
-        console.error("Welcome error:", err);
         res.writeHead(500, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: "Internal server error" }));
       }

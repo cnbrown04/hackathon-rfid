@@ -25,7 +25,7 @@ function NavLink({
 	to,
 	children,
 }: {
-	to: "/admin/people" | "/admin/tours" | "/admin/simulate";
+	to: "/admin/people" | "/admin/tours" | "/admin/simulate" | "/admin/api";
 	children: React.ReactNode;
 }) {
 	const pathname = useRouterState({ select: (s) => s.location.pathname });
@@ -111,6 +111,7 @@ function AdminLayout() {
 						<NavLink to="/admin/people">People</NavLink>
 						<NavLink to="/admin/tours">Tours</NavLink>
 						<NavLink to="/admin/simulate">Simulate</NavLink>
+						<NavLink to="/admin/api">API</NavLink>
 					</nav>
 					<Button
 						type="button"

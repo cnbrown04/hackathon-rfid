@@ -1,0 +1,35 @@
+---
+description: Keep OpenAPI in sync when changing apps/server HTTP API
+globs: apps/server/**/*
+alwaysApply: false
+---
+
+# Backend HTTP API — OpenAPI (`apps/server/openapi.yaml`)
+
+The canonical HTTP surface for the Node server is implemented in **`apps/server/index.js`**. The machine-readable contract lives in **`apps/server/openapi.yaml`** (OpenAPI 3.0).
+
+## When you change the server
+
+Whenever you **add, remove, or meaningfully change** an HTTP route (method, path, auth, request body, response shape, status codes, or important behavior):
+
+1. **Update `apps/server/openapi.yaml`** in the same change (same PR / same edit session). The running server exposes it as **`GET /openapi.json`** (no auth).
+2. Add or adjust **`paths`**, **`operationId`**, **`summary`**, and **`description`** so the spec matches behavior (including edge cases noted in code comments).
+3. Reuse or extend **`components/schemas`** and **`components/responses`** instead of duplicating large inline schemas when practical.
+4. If you introduce a new **auth** or **header** requirement, update **`components/securitySchemes`** and apply **`security`** on the affected operations.
+5. Keep **`servers`** aligned with **`HTTP_PORT`** (default **3002**) in the info description if behavior is env-driven.
+
+## What not to do
+
+- Do not leave `index.js` and `openapi.yaml` out of sync after editing routes.
+- Do not document WebSocket endpoints in this file unless we add a separate spec — WS is separate from this YAML.
+
+## Admin UI
+
+The tour app **`/admin/api`** page (`apps/tour-frontend/src/routes/admin/api.tsx`) loads the spec at runtime via **`GET /openapi.json`** on the Node server (same content as `openapi.yaml`, parsed once and cached server-side). Do not bundle the YAML in the frontend.
+
+## Quick reference
+
+| Source of truth (behavior) | Contract (documentation)      |
+| -------------------------- | ----------------------------- |
+| `apps/server/index.js`     | `apps/server/openapi.yaml`   |
+| (same)                     | `apps/tour-frontend/.../api.tsx` (human-readable list) |
