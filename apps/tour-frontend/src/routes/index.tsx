@@ -40,6 +40,14 @@ function Home() {
 				>
 					<Link to="/lidar">LiDAR Demo</Link>
 				</Button>
+				<Button
+					asChild
+					size="lg"
+					variant="outline"
+					className="h-auto min-h-12 max-w-[11rem] shrink-0 whitespace-normal px-4 py-3 text-center text-sm leading-snug sm:h-14 sm:max-w-none sm:min-w-44 sm:px-10 sm:text-lg md:h-16 md:min-w-48 md:text-xl"
+				>
+					<Link to="/conclusion">Thank you for attending</Link>
+				</Button>
 			</div>
 		</main>
 	);

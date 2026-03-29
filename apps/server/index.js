@@ -60,6 +60,124 @@ function isAdminAuthorized(req) {
   return timingSafeEqualString(auth.slice(7), ADMIN_PASSWORD);
 }
 
+/** Human-readable reader/station name for tour conclusion / admin UI. */
+function stationLabel(readerId) {
+  const m = {
+    welcome: "Welcome",
+    "reader-2": "Welcome (legacy)",
+    lidar: "LiDAR station",
+    "reader-3": "LiDAR (legacy)",
+    "reader-1": "Station 1",
+  };
+  return m[readerId] ?? readerId;
+}
+
+const TOUR_UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/**
+ * Aggregates first/last scan per reader_id for everyone on the tour roster (visitors + ambassador).
+ * @returns {Promise<{ data: { tour: object, stations: object[] } } | { error: number, message: string }>}
+ */
+async function tourStationSummaryPayload(pool, tourId) {
+  if (!tourId || !TOUR_UUID_RE.test(String(tourId))) {
+    return { error: 400, message: "tour_id query param must be a UUID" };
+  }
+  const tourResult = await pool.query(
+    "SELECT id, company, logo, start_time FROM tours WHERE id = $1::uuid",
+    [tourId]
+  );
+  if (tourResult.rows.length === 0) {
+    return { error: 404, message: "Tour not found" };
+  }
+  const tour = tourResult.rows[0];
+  const rosterResult = await pool.query(
+    `SELECT DISTINCT epc FROM (
+       SELECT epc FROM people WHERE tour_id = $1::uuid
+       UNION
+       SELECT p.epc FROM tours t
+       INNER JOIN people p ON p.id = t.ambassador_id
+       WHERE t.id = $1::uuid AND t.ambassador_id IS NOT NULL
+     ) AS r
+     WHERE epc IS NOT NULL AND TRIM(epc) <> ''`,
+    [tourId]
+  );
+  const epcs = rosterResult.rows.map((r) => r.epc);
+  const tourPayload = {
+    id: tour.id,
+    company: tour.company,
+    logo: tour.logo,
+    start_time: tour.start_time ? new Date(tour.start_time).toISOString() : null,
+  };
+  if (epcs.length === 0) {
+    return { data: { tour: tourPayload, stations: [] } };
+  }
+  const aggResult = await pool.query(
+    `SELECT
+       te.reader_id,
+       MIN(te.event_ts) AS first_ts,
+       MAX(te.event_ts) AS last_ts,
+       COUNT(*)::int AS event_count
+     FROM tour_event te
+     WHERE te.epc = ANY($1::text[])
+       AND te.reader_id IS NOT NULL
+       AND TRIM(te.reader_id) <> ''
+       AND ($2::timestamptz IS NULL OR te.event_ts >= $2::timestamptz)
+     GROUP BY te.reader_id
+     ORDER BY MIN(te.event_ts) ASC`,
+    [epcs, tour.start_time ?? null]
+  );
+  const stations = aggResult.rows.map((row) => {
+    const first = new Date(row.first_ts).getTime();
+    const last = new Date(row.last_ts).getTime();
+    const duration_ms = Math.max(0, last - first);
+    return {
+      reader_id: row.reader_id,
+      label: stationLabel(row.reader_id),
+      first_ts: new Date(row.first_ts).toISOString(),
+      last_ts: new Date(row.last_ts).toISOString(),
+      duration_ms,
+      event_count: row.event_count,
+    };
+  });
+  return { data: { tour: tourPayload, stations } };
+}
+
+/**
+ * Tour to show on the public conclusion screen:
+ * - Prefer the most recent tour that has already started (latest start_time <= now).
+ *   When a newer tour's start time arrives, this automatically switches to that tour.
+ * - If every tour is still in the future, use the earliest upcoming.
+ * - If no start times exist, use the most recently created tour.
+ */
+async function resolveCurrentConclusionTourMeta(pool) {
+  const started = await pool.query(
+    `SELECT id FROM tours
+     WHERE start_time IS NOT NULL AND start_time <= NOW()
+     ORDER BY start_time DESC
+     LIMIT 1`
+  );
+  if (started.rows.length) {
+    return { id: started.rows[0].id, reason: "active" };
+  }
+  const upcoming = await pool.query(
+    `SELECT id FROM tours
+     WHERE start_time IS NOT NULL AND start_time > NOW()
+     ORDER BY start_time ASC
+     LIMIT 1`
+  );
+  if (upcoming.rows.length) {
+    return { id: upcoming.rows[0].id, reason: "upcoming" };
+  }
+  const fallback = await pool.query(
+    `SELECT id FROM tours ORDER BY created_at DESC LIMIT 1`
+  );
+  if (fallback.rows.length) {
+    return { id: fallback.rows[0].id, reason: "latest_created" };
+  }
+  return null;
+}
+
 function readJsonBody(req) {
   return new Promise((resolve, reject) => {
     let body = "";
@@ -395,6 +513,77 @@ const httpServer = http.createServer(async (req, res) => {
       console.error("epc-tour-map query:", err);
       json(res, 500, { error: "Database error" });
     }
+    return;
+  }
+
+  // GET /api/tours — public read-only list (kiosk / conclusion picker)
+  if (req.method === "GET" && pathname === "/api/tours") {
+    pool
+      .query(
+        `SELECT id, company, logo, ambassador_id, start_time, created_at FROM tours ORDER BY created_at DESC`
+      )
+      .then((result) => json(res, 200, result.rows))
+      .catch((err) => {
+        console.error("GET /api/tours:", err);
+        json(res, 500, { error: "Database error" });
+      });
+    return;
+  }
+
+  // GET /api/conclusion-current — station summary for the current tour (or ?tour_id= override)
+  if (req.method === "GET" && pathname === "/api/conclusion-current") {
+    (async () => {
+      try {
+        const u = new URL(req.url, "http://localhost");
+        const override = u.searchParams.get("tour_id");
+        let meta = null;
+        if (override && TOUR_UUID_RE.test(String(override))) {
+          meta = { id: override, reason: null, mode: "override" };
+        } else {
+          const resolved = await resolveCurrentConclusionTourMeta(pool);
+          if (!resolved) {
+            json(res, 404, { error: "No tours" });
+            return;
+          }
+          meta = { id: resolved.id, reason: resolved.reason, mode: "current" };
+        }
+        const out = await tourStationSummaryPayload(pool, meta.id);
+        if (out.error) {
+          json(res, out.error, { error: out.message });
+          return;
+        }
+        json(res, 200, {
+          ...out.data,
+          selection: {
+            mode: meta.mode,
+            reason: meta.reason,
+          },
+        });
+      } catch (err) {
+        console.error("GET /api/conclusion-current:", err);
+        json(res, 500, { error: "Database error" });
+      }
+    })();
+    return;
+  }
+
+  // GET /api/tour-station-summary?tour_id=UUID — dwell per station for tour group (public kiosk)
+  if (req.method === "GET" && pathname === "/api/tour-station-summary") {
+    (async () => {
+      try {
+        const u = new URL(req.url, "http://localhost");
+        const tourId = u.searchParams.get("tour_id");
+        const out = await tourStationSummaryPayload(pool, tourId);
+        if (out.error) {
+          json(res, out.error, { error: out.message });
+          return;
+        }
+        json(res, 200, out.data);
+      } catch (err) {
+        console.error("GET /api/tour-station-summary:", err);
+        json(res, 500, { error: "Database error" });
+      }
+    })();
     return;
   }
 

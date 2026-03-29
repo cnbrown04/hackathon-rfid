@@ -45,7 +45,12 @@ function readStoredMode(): ThemeMode {
 }
 
 function isWelcomeRoute(pathname: string): boolean {
-	return pathname === "/welcome" || pathname.startsWith("/welcome/");
+	return (
+		pathname === "/welcome" ||
+		pathname.startsWith("/welcome/") ||
+		pathname === "/conclusion" ||
+		pathname.startsWith("/conclusion/")
+	);
 }
 
 export function ThemeToggle() {

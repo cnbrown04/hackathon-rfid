@@ -9,7 +9,6 @@ import {
 	NativeSelect,
 	NativeSelectOption,
 } from "#/components/ui/native-select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "#/components/ui/tabs";
 import {
 	clearWelcomeScreens,
 	clearAdminSecret,
@@ -229,6 +228,14 @@ function AmbassadorPage() {
 						</p>
 					</div>
 					<div className="flex flex-wrap items-center gap-2">
+						<Button type="button" variant="outline" size="sm" className="min-h-11" asChild>
+							<Link
+								to="/conclusion"
+								search={{ tour: selectedTourId }}
+							>
+								Thank you screen
+							</Link>
+						</Button>
 						<Button
 							type="button"
 							variant="outline"
@@ -252,28 +259,7 @@ function AmbassadorPage() {
 				</div>
 			</header>
 
-			<div className="mx-auto flex w-full min-w-0 max-w-4xl flex-1 flex-col px-4 py-6 sm:px-6 sm:py-8">
-				<Tabs defaultValue="welcome" className="flex min-h-0 flex-1 flex-col gap-6">
-					<TabsList
-						variant="line"
-						className="h-auto min-h-14 w-full shrink-0 justify-start gap-1 bg-transparent p-0 sm:min-h-16"
-					>
-						<TabsTrigger
-							value="welcome"
-							className="min-h-14 flex-1 px-4 py-3 text-base data-active:text-foreground sm:min-h-16 sm:px-6 sm:text-lg"
-						>
-							Welcome management
-						</TabsTrigger>
-						<TabsTrigger
-							value="more"
-							disabled
-							className="min-h-14 shrink-0 px-4 py-3 text-base opacity-40 sm:min-h-16 sm:px-6 sm:text-lg"
-						>
-							More
-						</TabsTrigger>
-					</TabsList>
-
-					<TabsContent value="welcome" className="mt-0 flex-1 outline-none">
+			<div className="mx-auto flex w-full min-w-0 max-w-4xl flex-1 flex-col gap-6 px-4 py-6 sm:px-6 sm:py-8">
 						{loadError ? (
 							<p className="text-destructive">{loadError}</p>
 						) : (
@@ -416,8 +402,6 @@ function AmbassadorPage() {
 								) : null}
 							</div>
 						)}
-					</TabsContent>
-				</Tabs>
 			</div>
 		</div>
 	);
