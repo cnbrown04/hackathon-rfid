@@ -125,3 +125,26 @@ CREATE TRIGGER localization_event_inserted
   AFTER INSERT ON localization_event
   FOR EACH ROW
   EXECUTE FUNCTION notify_new_localization_event();
+
+-- Lightweight localize reader events (real-time trilateration input)
+CREATE TABLE IF NOT EXISTS localize (
+  event_ts      TIMESTAMPTZ NOT NULL,
+  antenna_id    INTEGER NOT NULL,
+  epc           TEXT NOT NULL,
+  avg_rssi      DOUBLE PRECISION,
+  read_count    BIGINT
+);
+
+CREATE OR REPLACE FUNCTION notify_new_localize()
+RETURNS TRIGGER AS $$
+BEGIN
+  PERFORM pg_notify('new_localize', row_to_json(NEW)::text);
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS localize_inserted ON localize;
+CREATE TRIGGER localize_inserted
+  AFTER INSERT ON localize
+  FOR EACH ROW
+  EXECUTE FUNCTION notify_new_localize();

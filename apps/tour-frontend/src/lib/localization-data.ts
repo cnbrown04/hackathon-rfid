@@ -1,30 +1,16 @@
 import { viteWsUrl } from "./env-urls";
 
-export type LocalizationEvent = {
-	id: number;
-	event_id: string;
+/** Row from the `localize` table */
+export type LocalizeEvent = {
 	event_ts: string;
-	site_id: string | null;
-	reader_id: string | null;
+	antenna_id: number;
 	epc: string;
-	x_ft: number | null;
-	y_ft: number | null;
-	confidence: number | null;
-	rssi_1: number | null;
-	rssi_2: number | null;
-	rssi_3: number | null;
-	r1_ft: number | null;
-	r2_ft: number | null;
-	r3_ft: number | null;
-	created_at: string;
-	quality?: {
-		rmse_ft?: number;
-		freshness_span_ms?: number;
-	};
+	avg_rssi: number | null;
+	read_count: number | null;
 };
 
 export function connectLocalizationSocket(
-	onEvent: (event: LocalizationEvent) => void,
+	onEvent: (event: LocalizeEvent) => void,
 ) {
 	let ws: WebSocket;
 
@@ -33,8 +19,8 @@ export function connectLocalizationSocket(
 
 		ws.onmessage = (event) => {
 			const msg = JSON.parse(event.data);
-			if (msg.type === "localization_event") {
-				onEvent(msg.data as LocalizationEvent);
+			if (msg.type === "localize") {
+				onEvent(msg.data as LocalizeEvent);
 			}
 		};
 

@@ -24,7 +24,7 @@ function Home() {
 			<h1 className="w-full max-w-5xl text-center text-5xl font-medium tracking-tight text-foreground sm:text-6xl md:text-7xl lg:text-8xl lg:leading-[1.05]">
 				<RfidLabHeadingLine />
 			</h1>
-			<div className="flex w-full max-w-3xl flex-nowrap items-center justify-center gap-3 overflow-x-auto pb-1 sm:gap-6 md:gap-8">
+			<div className="flex w-full max-w-4xl flex-wrap items-center justify-center gap-3 pb-1 sm:gap-6 md:gap-8">
 				<Button
 					asChild
 					size="lg"
@@ -39,6 +39,14 @@ function Home() {
 					className="h-12 shrink-0 px-6 text-base sm:h-14 sm:min-w-44 sm:px-10 sm:text-lg md:h-16 md:min-w-48 md:text-xl"
 				>
 					<Link to="/lidar">LiDAR Demo</Link>
+				</Button>
+				<Button
+					asChild
+					size="lg"
+					variant="outline"
+					className="h-12 shrink-0 px-6 text-base sm:h-14 sm:min-w-44 sm:px-10 sm:text-lg md:h-16 md:min-w-48 md:text-xl"
+				>
+					<Link to="/localization">Localization</Link>
 				</Button>
 				<Button
 					asChild

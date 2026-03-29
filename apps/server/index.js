@@ -642,8 +642,10 @@ async function start() {
   await listener.connect();
   await listener.query("LISTEN new_event");
   await listener.query("LISTEN new_localization_event");
+  await listener.query("LISTEN new_localize");
   console.log("Listening for Postgres NOTIFY on channel: new_event");
   console.log("Listening for Postgres NOTIFY on channel: new_localization_event");
+  console.log("Listening for Postgres NOTIFY on channel: new_localize");
 
   setInterval(() => {
     pruneLocalizationState(Date.now());
@@ -661,6 +663,11 @@ async function start() {
 
     if (msg.channel === "new_localization_event") {
       broadcast({ type: "localization_event", data: payload });
+      return;
+    }
+
+    if (msg.channel === "new_localize") {
+      broadcast({ type: "localize", data: payload });
       return;
     }
 
