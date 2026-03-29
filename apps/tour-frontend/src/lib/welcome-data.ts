@@ -15,9 +15,13 @@ export type WelcomeUser = {
 export type TourRosterPayload = {
 	tour_id: string;
 	company: string;
+	/** Company logo image URL (optional). */
+	logo?: string | null;
 	start_time: string | null;
 	/** EPC of the ambassador whose scan loaded this roster (shown as arrived). */
 	scanned_epc: string;
+	/** When the ambassador scan was processed (ISO). */
+	scanned_at?: string;
 	people: WelcomeUser[];
 };
 

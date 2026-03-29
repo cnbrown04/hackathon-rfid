@@ -1,0 +1,22 @@
+---
+description: Prefer square corners on admin panels, tables, and bordered sections in tour-frontend
+globs: apps/tour-frontend/src/**/*.tsx
+alwaysApply: false
+---
+
+# Square corners on dense UI
+
+For **admin routes**, **simulate**, **data tables**, and **full-width bordered sections** (form panels, event lists):
+
+- Use **`rounded-none`** on bordered containers (`section`, table wrappers, panel-like blocks). Do not add `rounded-lg` / `rounded-md` to these surfaces unless the user explicitly asks.
+- **Shadcn primitives** (`Button`, `Input`, `Dialog`) may keep default radii; the rule targets **layout shells** and **tables** where rounding reads as accidental styling.
+
+```tsx
+// ✅ GOOD — full-width insert panel
+<section className="w-full rounded-none border border-border bg-card/30 p-4 sm:p-6">
+
+// ❌ AVOID — unnecessary rounding on the same pattern
+<section className="rounded-lg border ...">
+```
+
+When adding new bordered UI in `routes/admin/` or similar, default to **`rounded-none`** for the outer panel.

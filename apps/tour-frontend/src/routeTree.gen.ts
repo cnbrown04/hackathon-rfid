@@ -15,6 +15,7 @@ import { Route as AdminRouteRouteImport } from './routes/admin/route'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AdminIndexRouteImport } from './routes/admin/index'
 import { Route as AdminToursRouteImport } from './routes/admin/tours'
+import { Route as AdminSimulateRouteImport } from './routes/admin/simulate'
 import { Route as AdminPeopleRouteImport } from './routes/admin/people'
 
 const WelcomeRoute = WelcomeRouteImport.update({
@@ -47,6 +48,11 @@ const AdminToursRoute = AdminToursRouteImport.update({
   path: '/tours',
   getParentRoute: () => AdminRouteRoute,
 } as any)
+const AdminSimulateRoute = AdminSimulateRouteImport.update({
+  id: '/simulate',
+  path: '/simulate',
+  getParentRoute: () => AdminRouteRoute,
+} as any)
 const AdminPeopleRoute = AdminPeopleRouteImport.update({
   id: '/people',
   path: '/people',
@@ -59,6 +65,7 @@ export interface FileRoutesByFullPath {
   '/antenna': typeof AntennaRoute
   '/welcome': typeof WelcomeRoute
   '/admin/people': typeof AdminPeopleRoute
+  '/admin/simulate': typeof AdminSimulateRoute
   '/admin/tours': typeof AdminToursRoute
   '/admin/': typeof AdminIndexRoute
 }
@@ -67,6 +74,7 @@ export interface FileRoutesByTo {
   '/antenna': typeof AntennaRoute
   '/welcome': typeof WelcomeRoute
   '/admin/people': typeof AdminPeopleRoute
+  '/admin/simulate': typeof AdminSimulateRoute
   '/admin/tours': typeof AdminToursRoute
   '/admin': typeof AdminIndexRoute
 }
@@ -77,6 +85,7 @@ export interface FileRoutesById {
   '/antenna': typeof AntennaRoute
   '/welcome': typeof WelcomeRoute
   '/admin/people': typeof AdminPeopleRoute
+  '/admin/simulate': typeof AdminSimulateRoute
   '/admin/tours': typeof AdminToursRoute
   '/admin/': typeof AdminIndexRoute
 }
@@ -88,6 +97,7 @@ export interface FileRouteTypes {
     | '/antenna'
     | '/welcome'
     | '/admin/people'
+    | '/admin/simulate'
     | '/admin/tours'
     | '/admin/'
   fileRoutesByTo: FileRoutesByTo
@@ -96,6 +106,7 @@ export interface FileRouteTypes {
     | '/antenna'
     | '/welcome'
     | '/admin/people'
+    | '/admin/simulate'
     | '/admin/tours'
     | '/admin'
   id:
@@ -105,6 +116,7 @@ export interface FileRouteTypes {
     | '/antenna'
     | '/welcome'
     | '/admin/people'
+    | '/admin/simulate'
     | '/admin/tours'
     | '/admin/'
   fileRoutesById: FileRoutesById
@@ -160,6 +172,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminToursRouteImport
       parentRoute: typeof AdminRouteRoute
     }
+    '/admin/simulate': {
+      id: '/admin/simulate'
+      path: '/simulate'
+      fullPath: '/admin/simulate'
+      preLoaderRoute: typeof AdminSimulateRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
     '/admin/people': {
       id: '/admin/people'
       path: '/people'
@@ -172,12 +191,14 @@ declare module '@tanstack/react-router' {
 
 interface AdminRouteRouteChildren {
   AdminPeopleRoute: typeof AdminPeopleRoute
+  AdminSimulateRoute: typeof AdminSimulateRoute
   AdminToursRoute: typeof AdminToursRoute
   AdminIndexRoute: typeof AdminIndexRoute
 }
 
 const AdminRouteRouteChildren: AdminRouteRouteChildren = {
   AdminPeopleRoute: AdminPeopleRoute,
+  AdminSimulateRoute: AdminSimulateRoute,
   AdminToursRoute: AdminToursRoute,
   AdminIndexRoute: AdminIndexRoute,
 }

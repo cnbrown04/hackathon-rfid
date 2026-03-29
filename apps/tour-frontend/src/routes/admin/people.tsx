@@ -1,5 +1,6 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useState } from "react";
+import { formatNameSingleLine } from "#/components/person-name";
 import {
 	AlertDialog,
 	AlertDialogCancel,
@@ -159,7 +160,7 @@ function ManagePeople() {
 	}
 
 	return (
-		<div className="flex flex-col gap-10">
+		<div className="flex min-w-0 flex-col gap-10">
 			<div>
 				<h1 className="text-xl font-semibold tracking-tight">People</h1>
 				<p className="mt-1 text-sm text-muted-foreground">
@@ -263,7 +264,7 @@ function ManagePeople() {
 				{loadError ? (
 					<p className="text-sm text-destructive">{loadError}</p>
 				) : (
-					<div className="border border-border">
+					<div className="overflow-x-auto border border-border">
 						<Table>
 							<TableHeader>
 								<TableRow>
@@ -278,14 +279,14 @@ function ManagePeople() {
 							<TableBody>
 								{rows.map((r) => (
 									<TableRow key={r.id}>
-										<TableCell className="font-mono text-[11px]">
+										<TableCell className="whitespace-nowrap font-mono text-[11px]">
 											{r.epc}
 										</TableCell>
-										<TableCell>
-											{r.first_name} {r.last_name}
+										<TableCell className="whitespace-nowrap">
+											{formatNameSingleLine(r.first_name, r.last_name)}
 										</TableCell>
 										<TableCell className="capitalize">{r.role}</TableCell>
-										<TableCell className="max-w-[140px] truncate text-muted-foreground text-xs">
+										<TableCell className="min-w-0 max-w-36 truncate text-muted-foreground text-xs">
 											{tourLabel(r.tour_id)}
 										</TableCell>
 										<TableCell className="text-muted-foreground">
@@ -330,14 +331,17 @@ function ManagePeople() {
 					if (!open) setDeleteTarget(null);
 				}}
 			>
-				<AlertDialogContent>
+				<AlertDialogContent className="flex w-full max-w-md flex-col">
 					<AlertDialogHeader>
 						<AlertDialogTitle>Delete person?</AlertDialogTitle>
 						<AlertDialogDescription>
 							This will permanently remove{" "}
 							<span className="font-medium text-foreground">
 								{deleteTarget
-									? `${deleteTarget.first_name} ${deleteTarget.last_name}`
+									? formatNameSingleLine(
+											deleteTarget.first_name,
+											deleteTarget.last_name,
+										)
 									: ""}
 							</span>
 							. This action cannot be undone.
@@ -357,11 +361,11 @@ function ManagePeople() {
 			</AlertDialog>
 
 			<Dialog open={editOpen} onOpenChange={setEditOpen}>
-				<DialogContent className="max-h-[90vh] w-full max-w-screen-2xl gap-6 p-6 sm:max-w-screen-2xl">
+				<DialogContent className="flex max-h-[90dvh] min-h-0 min-w-0 w-full max-w-4xl flex-col gap-6 overflow-hidden p-4 sm:p-6">
 					<DialogHeader>
 						<DialogTitle>Edit person</DialogTitle>
 					</DialogHeader>
-					<div className="grid max-h-[70vh] gap-4 overflow-y-auto sm:grid-cols-2 lg:grid-cols-3">
+					<div className="grid min-h-0 min-w-0 flex-1 gap-4 overflow-y-auto overscroll-contain sm:grid-cols-2 lg:grid-cols-3">
 						<Field
 							label="EPC"
 							value={editForm.epc}

@@ -2,6 +2,7 @@ require("dotenv").config();
 const crypto = require("crypto");
 const { Pool, Client } = require("pg");
 const { WebSocketServer } = require("ws");
+const { buildFakeTourEventBody, insertFullTourEvent } = require("./lib/tour-event-fake");
 
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "RFIDLab123!";
 
@@ -76,6 +77,46 @@ function welcomePayloadFromRow(person) {
   };
 }
 
+/** Same tour pick as welcome roster: nearest scheduled start to now for this ambassador. */
+async function nearestTourForAmbassador(ambassadorId) {
+  const toursResult = await pool.query(
+    `SELECT id, company, logo, ambassador_id, start_time, created_at
+     FROM tours
+     WHERE ambassador_id = $1 AND start_time IS NOT NULL
+     ORDER BY ABS(EXTRACT(EPOCH FROM (start_time - NOW()))) ASC
+     LIMIT 1`,
+    [ambassadorId]
+  );
+  return toursResult.rows.length > 0 ? toursResult.rows[0] : null;
+}
+
+/**
+ * tour_id stored on tour_event: ambassador → nearest tour by start_time; visitor → people.tour_id.
+ */
+async function resolveTourIdForSimulatedEvent(person) {
+  if (person.role === "ambassador") {
+    const tour = await nearestTourForAmbassador(person.id);
+    return tour ? tour.id : null;
+  }
+  return person.tour_id ?? null;
+}
+
+/**
+ * Runs only from the Postgres NOTIFY listener (INSERT → trigger → pg_notify).
+ * HTTP routes that insert tour_event (POST /event, admin simulate, etc.) must not call this — the DB path is the single source of truth for WebSocket side effects.
+ */
+async function dispatchTourEventFromNotify(row) {
+  broadcast({ type: "tour_event", data: row });
+
+  if (row.reader_id === "reader-2" && row.epc) {
+    try {
+      await broadcastWelcomeForEpc(row.epc);
+    } catch (err) {
+      console.error("Welcome lookup error:", err);
+    }
+  }
+}
+
 /**
  * Looks up EPC; ambassadors with a timed tour broadcast tour_roster (nearest start_time to now),
  * otherwise a normal welcome message.
@@ -92,21 +133,13 @@ async function broadcastWelcomeForEpc(epc) {
   const person = result.rows[0];
 
   if (person.role === "ambassador") {
-    const toursResult = await pool.query(
-      `SELECT id, company, ambassador_id, start_time, created_at
-       FROM tours
-       WHERE ambassador_id = $1 AND start_time IS NOT NULL
-       ORDER BY ABS(EXTRACT(EPOCH FROM (start_time - NOW()))) ASC
-       LIMIT 1`,
-      [person.id]
-    );
+    const tour = await nearestTourForAmbassador(person.id);
 
-    if (toursResult.rows.length === 0) {
+    if (!tour) {
       broadcast({ type: "welcome", data: welcomePayloadFromRow(person) });
       return true;
     }
 
-    const tour = toursResult.rows[0];
     const rosterResult = await pool.query(
       `SELECT epc, first_name, last_name, email, company, title, photo_url
        FROM people
@@ -131,10 +164,12 @@ async function broadcastWelcomeForEpc(epc) {
       data: {
         tour_id: tour.id,
         company: tour.company,
+        logo: tour.logo ?? null,
         start_time: tour.start_time
           ? new Date(tour.start_time).toISOString()
           : null,
         scanned_epc: person.epc,
+        scanned_at: new Date().toISOString(),
         people,
       },
     });
@@ -156,19 +191,14 @@ async function start() {
   await listener.query("LISTEN new_event");
   console.log("Listening for Postgres NOTIFY on channel: new_event");
 
-  // 3. Forward every notification to all WebSocket clients
+  // 3. NOTIFY → WebSocket (same path for real writers, simulate inserts, etc.)
   listener.on("notification", async (msg) => {
-    const event = JSON.parse(msg.payload);
-    console.log("Event received:", event);
-    broadcast({ type: "tour_event", data: event });
-
-    // reader-2 is the welcome reader — ambassador roster or single welcome
-    if (event.reader_id === "reader-2" && event.epc) {
-      try {
-        await broadcastWelcomeForEpc(event.epc);
-      } catch (err) {
-        console.error("Welcome lookup error:", err);
-      }
+    try {
+      const event = JSON.parse(msg.payload);
+      console.log("Event received:", event);
+      await dispatchTourEventFromNotify(event);
+    } catch (err) {
+      console.error("Notification handler error:", err);
     }
   });
 
@@ -416,7 +446,7 @@ const httpServer = http.createServer(async (req, res) => {
       if (req.method === "GET" && segments.length === 1) {
         pool
           .query(
-            "SELECT id, company, ambassador_id, start_time, created_at FROM tours ORDER BY created_at DESC"
+            "SELECT id, company, logo, ambassador_id, start_time, created_at FROM tours ORDER BY created_at DESC"
           )
           .then((result) => json(res, 200, result.rows))
           .catch((err) => {
@@ -429,7 +459,7 @@ const httpServer = http.createServer(async (req, res) => {
       if (req.method === "POST" && segments.length === 1) {
         readJsonBody(req)
           .then(async (body) => {
-            const { company, ambassador_id, start_time } = body;
+            const { company, ambassador_id, start_time, logo } = body;
             if (!company || String(company).trim() === "") {
               json(res, 400, { error: "company is required" });
               return;
@@ -451,9 +481,11 @@ const httpServer = http.createServer(async (req, res) => {
               }
               st = d.toISOString();
             }
+            const logoVal =
+              logo != null && String(logo).trim() !== "" ? String(logo).trim() : null;
             const result = await pool.query(
-              `INSERT INTO tours (company, ambassador_id, start_time) VALUES ($1,$2,$3) RETURNING *`,
-              [String(company).trim(), aid, st]
+              `INSERT INTO tours (company, ambassador_id, start_time, logo) VALUES ($1,$2,$3,$4) RETURNING *`,
+              [String(company).trim(), aid, st, logoVal]
             );
             json(res, 201, result.rows[0]);
           })
@@ -467,7 +499,7 @@ const httpServer = http.createServer(async (req, res) => {
       if (req.method === "PUT" && segments.length === 2 && tourId && isUuid(tourId)) {
         readJsonBody(req)
           .then(async (body) => {
-            const { company, ambassador_id, start_time } = body;
+            const { company, ambassador_id, start_time, logo } = body;
             if (!company || String(company).trim() === "") {
               json(res, 400, { error: "company is required" });
               return;
@@ -489,9 +521,11 @@ const httpServer = http.createServer(async (req, res) => {
               }
               st = d.toISOString();
             }
+            const logoVal =
+              logo != null && String(logo).trim() !== "" ? String(logo).trim() : null;
             const result = await pool.query(
-              `UPDATE tours SET company=$1, ambassador_id=$2, start_time=$3 WHERE id=$4::uuid RETURNING *`,
-              [String(company).trim(), aid, st, tourId]
+              `UPDATE tours SET company=$1, ambassador_id=$2, start_time=$3, logo=$4 WHERE id=$5::uuid RETURNING *`,
+              [String(company).trim(), aid, st, logoVal, tourId]
             );
             if (result.rows.length === 0) {
               json(res, 404, { error: "Not found" });
@@ -524,6 +558,99 @@ const httpServer = http.createServer(async (req, res) => {
       }
     }
 
+    // GET /api/admin/tour-events — recent tour_event rows (for admin UI)
+    // DELETE /api/admin/tour-events — truncate table (dev / reset)
+    if (segments[0] === "tour-events" && segments.length === 1) {
+      if (req.method === "GET") {
+        pool
+          .query(
+            `SELECT te.id, te.event_id, te.event_type, te.event_ts, te.site_id, te.reader_id, te.antenna_id,
+                    te.tour_id, te.epc, te.created_at,
+                    p.id AS person_id,
+                    p.first_name AS person_first_name,
+                    p.last_name AS person_last_name,
+                    p.email AS person_email,
+                    p.company AS person_company,
+                    p.title AS person_title,
+                    p.photo_url AS person_photo_url,
+                    p.role::text AS person_role
+             FROM tour_event te
+             LEFT JOIN people p ON p.epc = te.epc
+             ORDER BY te.event_ts DESC
+             LIMIT 40`
+          )
+          .then((result) => json(res, 200, result.rows))
+          .catch((err) => {
+            console.error(err);
+            json(res, 500, { error: "Database error" });
+          });
+        return;
+      }
+
+      if (req.method === "DELETE") {
+        pool
+          .query("TRUNCATE tour_event RESTART IDENTITY")
+          .then(() => json(res, 200, { ok: true, deleted: "all" }))
+          .catch((err) => {
+            console.error(err);
+            json(res, 500, { error: "Database error" });
+          });
+        return;
+      }
+    }
+
+    // POST /api/admin/simulate-tour-event — DB insert only; NOTIFY/LISTEN drives WebSocket (same as POST /event)
+    if (segments[0] === "simulate-tour-event" && req.method === "POST" && segments.length === 1) {
+      readJsonBody(req)
+        .then(async (body) => {
+          const personId = body.person_id != null ? Number(body.person_id) : null;
+          const epcDirect =
+            typeof body.epc === "string" && body.epc.trim() !== "" ? body.epc.trim() : null;
+          if (!personId && !epcDirect) {
+            json(res, 400, { error: "person_id or epc is required" });
+            return;
+          }
+          let personRow;
+          if (personId) {
+            const pr = await pool.query(
+              "SELECT id, epc, role::text AS role, tour_id FROM people WHERE id = $1",
+              [personId]
+            );
+            if (pr.rows.length === 0) {
+              json(res, 404, { error: "Person not found" });
+              return;
+            }
+            personRow = pr.rows[0];
+          } else {
+            const pr = await pool.query(
+              "SELECT id, epc, role::text AS role, tour_id FROM people WHERE epc = $1",
+              [epcDirect]
+            );
+            if (pr.rows.length === 0) {
+              json(res, 404, { error: "Person not found for EPC" });
+              return;
+            }
+            personRow = pr.rows[0];
+          }
+          const epc = personRow.epc;
+          const resolvedTourId = await resolveTourIdForSimulatedEvent(personRow);
+          const fake = buildFakeTourEventBody(epc, {
+            reader_id: body.reader_id,
+            event_type: body.event_type,
+            tour_id: resolvedTourId,
+            site_id: body.site_id,
+            antenna_id: body.antenna_id,
+          });
+          const result = await insertFullTourEvent(pool, fake);
+          json(res, 201, result.rows[0]);
+        })
+        .catch((err) => {
+          console.error(err);
+          json(res, 500, { error: "Database error" });
+        });
+      return;
+    }
+
     json(res, 404, { error: "Not found" });
     return;
   }
@@ -540,27 +667,7 @@ const httpServer = http.createServer(async (req, res) => {
           res.end(JSON.stringify({ error: "event_id, event_type, and event_ts are required" }));
           return;
         }
-        const result = await pool.query(
-          `INSERT INTO tour_event (
-            event_id, event_type, event_ts, site_id, reader_id, antenna_id,
-            tour_id, epc, window_start_epoch_sec, window_end_epoch_sec,
-            read_count_60s, unique_tag_count_60s, avg_rssi_60s,
-            baseline_read_count, baseline_avg_rssi,
-            count_drop_pct, rssi_drop_db,
-            threshold_count_drop_pct, threshold_rssi_drop_db,
-            consecutive_checks_required
-          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
-          RETURNING *`,
-          [
-            e.event_id, e.event_type, e.event_ts, e.site_id, e.reader_id, e.antenna_id,
-            e.tour_id, e.epc, e.window_start_epoch_sec, e.window_end_epoch_sec,
-            e.read_count_60s, e.unique_tag_count_60s, e.avg_rssi_60s,
-            e.baseline_read_count, e.baseline_avg_rssi,
-            e.count_drop_pct, e.rssi_drop_db,
-            e.threshold_count_drop_pct, e.threshold_rssi_drop_db,
-            e.consecutive_checks_required
-          ]
-        );
+        const result = await insertFullTourEvent(pool, e);
         res.writeHead(201, { "Content-Type": "application/json" });
         res.end(JSON.stringify(result.rows[0]));
       } catch (err) {
