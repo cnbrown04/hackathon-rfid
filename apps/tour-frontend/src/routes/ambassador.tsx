@@ -22,7 +22,7 @@ import {
 	type TourRow,
 } from "#/lib/admin-api";
 
-const WELCOME_READER = "reader-2";
+const WELCOME_READER = "welcome";
 
 function tourOptionLabel(t: TourRow): string {
 	const start = t.start_time

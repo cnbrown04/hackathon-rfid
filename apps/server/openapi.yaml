@@ -360,7 +360,7 @@ paths:
     get:
       tags: [Admin]
       summary: List LiDAR shelf catalog rows
-      description: Used when `reader-3` events resolve product info for `lidar_scan` WebSocket messages.
+      description: Used when `lidar` reader events resolve product info for `lidar_scan` WebSocket messages.
       security: [AdminBearer: []]
       operationId: listLidarItems
       responses:

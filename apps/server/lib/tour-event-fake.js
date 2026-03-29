@@ -16,7 +16,7 @@ function buildFakeTourEventBody(epc, overrides = {}) {
     event_type: typeof o.event_type === "string" ? o.event_type : "tag_read",
     event_ts: eventTs,
     site_id: o.site_id !== undefined && o.site_id !== null ? o.site_id : "lab-site-1",
-    reader_id: o.reader_id !== undefined && o.reader_id !== null ? o.reader_id : "reader-2",
+    reader_id: o.reader_id !== undefined && o.reader_id !== null ? o.reader_id : "welcome",
     antenna_id: o.antenna_id !== undefined && o.antenna_id !== null ? o.antenna_id : 1,
     tour_id: o.tour_id !== undefined ? o.tour_id : null,
     epc: epc !== undefined && epc !== null ? String(epc) : null,

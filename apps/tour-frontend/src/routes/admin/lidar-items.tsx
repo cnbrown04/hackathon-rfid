@@ -139,7 +139,7 @@ function LidarItemsPage() {
 			<div>
 				<h1 className="text-xl font-semibold tracking-tight">LiDAR shelf items</h1>
 				<p className="mt-1 text-sm text-muted-foreground">
-					Tag EPC → product info for <code className="text-xs">reader-3</code> scans;
+					Tag EPC → product info for <code className="text-xs">lidar</code> scans;
 					server broadcasts <code className="text-xs">lidar_scan</code> to{" "}
 					<code className="text-xs">/lidar</code>.
 				</p>

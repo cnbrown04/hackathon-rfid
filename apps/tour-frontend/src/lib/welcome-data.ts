@@ -34,7 +34,7 @@ export type WelcomeSocketHandlers = {
 	onWelcomeClear?: () => void;
 };
 
-/** Welcome kiosk UI only reacts to the welcome reader (reader-2), not LiDAR or other readers. */
+/** Welcome kiosk UI only reacts to the `welcome` reader, not LiDAR or other readers. */
 function isWelcomeReaderMessage(msg: {
 	reader_id?: string | null;
 	type?: string;
@@ -42,7 +42,7 @@ function isWelcomeReaderMessage(msg: {
 	if (msg.reader_id == null) {
 		return true;
 	}
-	return msg.reader_id === "reader-2";
+	return msg.reader_id === "welcome";
 }
 
 export function connectWelcomeSocket(handlers: WelcomeSocketHandlers) {

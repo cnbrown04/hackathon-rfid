@@ -144,7 +144,7 @@ async function resolveTourIdForSimulatedEvent(person, optionalTourId) {
 async function dispatchTourEventFromNotify(row) {
   broadcast({ type: "tour_event", data: row });
 
-  if (row.reader_id === "reader-2" && row.epc) {
+  if (row.reader_id === "welcome" && row.epc) {
     try {
       await broadcastWelcomeForEpc(row.epc, {
         tour_id: row.tour_id ?? null,
@@ -155,9 +155,9 @@ async function dispatchTourEventFromNotify(row) {
     }
   }
 
-  // reader-3 is the lidar shelf reader — look up product and broadcast
-  if (row.reader_id === "reader-3" && row.epc) {
-    console.log("[lidar] reader-3 event, EPC:", row.epc);
+  // "lidar" is the shelf reader — look up product and broadcast
+  if (row.reader_id === "lidar" && row.epc) {
+    console.log("[lidar] lidar reader event, EPC:", row.epc);
     try {
       const result = await pool.query(
         "SELECT * FROM lidar_items WHERE epc = $1",
@@ -190,7 +190,7 @@ async function dispatchTourEventFromNotify(row) {
  */
 async function broadcastWelcomeForEpc(epc, options = {}) {
   const explicitTourId = options.tour_id ?? null;
-  const readerId = options.reader_id ?? "reader-2";
+  const readerId = options.reader_id ?? "welcome";
 
   const result = await pool.query(
     "SELECT *, role::text AS role FROM people WHERE epc = $1",
@@ -672,7 +672,7 @@ const httpServer = http.createServer(async (req, res) => {
       }
     }
 
-    // GET/POST /api/admin/lidar-items — shelf catalog for reader-3 → lidar_scan WebSocket
+    // GET/POST /api/admin/lidar-items — shelf catalog for lidar reader → lidar_scan WebSocket
     // PUT/DELETE /api/admin/lidar-items/:epc
     if (segments[0] === "lidar-items") {
       if (req.method === "GET" && segments.length === 1) {

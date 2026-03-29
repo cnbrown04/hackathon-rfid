@@ -41,9 +41,9 @@ import {
 } from "#/lib/admin-api";
 
 const READER_OPTIONS = [
-	{ value: "reader-2", label: "reader-2 (welcome / tour roster)" },
+	{ value: "welcome", label: "welcome (welcome / tour roster)" },
 	{ value: "reader-1", label: "reader-1" },
-	{ value: "reader-3", label: "reader-3 (lidar shelf)" },
+	{ value: "lidar", label: "lidar (shelf)" },
 ] as const;
 
 export const Route = createFileRoute("/admin/simulate")({
@@ -230,8 +230,8 @@ function SimulateTourEvent() {
 						visitors, their <code className="text-xs">people.tour_id</code>. The
 						Postgres listener turns the insert into WebSocket messages; keep{" "}
 						<code className="text-xs">/welcome</code> open to see it. Use{" "}
-						<code className="text-xs">reader-2</code> for the welcome flow.{" "}
-						<code className="text-xs">reader-3</code> triggers a{" "}
+						<code className="text-xs">welcome</code> for the welcome flow.{" "}
+						<code className="text-xs">lidar</code> triggers a{" "}
 						<code className="text-xs">lidar_items</code> lookup by the
 						person&apos;s EPC and broadcasts <code className="text-xs">lidar_scan</code>{" "}
 						(open <code className="text-xs">/lidar</code>; add rows under{" "}
