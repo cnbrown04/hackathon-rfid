@@ -146,6 +146,34 @@ async function dispatchTourEventFromNotify(row) {
       console.error("Welcome lookup error:", err);
     }
   }
+
+  // reader-3 is the lidar shelf reader — look up product and broadcast
+  if (row.reader_id === "reader-3" && row.epc) {
+    console.log("[lidar] reader-3 event, EPC:", row.epc);
+    try {
+      const result = await pool.query(
+        "SELECT * FROM lidar_items WHERE epc = $1",
+        [row.epc]
+      );
+      if (result.rows.length > 0) {
+        const item = result.rows[0];
+        console.log("[lidar] Match found:", item.item_desc, "— broadcasting lidar_scan");
+        broadcast({
+          type: "lidar_scan",
+          data: {
+            epc: item.epc,
+            upc: item.upc,
+            item_url: item.item_url,
+            item_desc: item.item_desc,
+          },
+        });
+      } else {
+        console.log("[lidar] No match in lidar_items for EPC:", row.epc);
+      }
+    } catch (err) {
+      console.error("Lidar lookup error:", err);
+    }
+  }
 }
 
 /**
@@ -230,30 +258,6 @@ async function start() {
       const event = JSON.parse(msg.payload);
       console.log("Event received:", event);
       await dispatchTourEventFromNotify(event);
-
-      // reader-3 is the lidar shelf reader — look up product and broadcast
-      if (event.reader_id === "reader-3" && event.epc) {
-        try {
-          const result = await pool.query(
-            "SELECT * FROM lidar_items WHERE epc = $1",
-            [event.epc]
-          );
-          if (result.rows.length > 0) {
-            const item = result.rows[0];
-            broadcast({
-              type: "lidar_scan",
-              data: {
-                epc: item.epc,
-                upc: item.upc,
-                item_url: item.item_url,
-                item_desc: item.item_desc,
-              },
-            });
-          }
-        } catch (err) {
-          console.error("Lidar lookup error:", err);
-        }
-      }
     } catch (err) {
       console.error("Notification handler error:", err);
     }
