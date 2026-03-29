@@ -1,3 +1,6 @@
+/** Demo EPC used in antenna flow test data */
+export const PLACEHOLDER_EPC = "E28069950000500CA794A47F";
+
 export type WelcomeUser = {
 	epc: string;
 	first_name: string;
@@ -9,9 +12,23 @@ export type WelcomeUser = {
 	arrived_at: string;
 };
 
+export type TourRosterPayload = {
+	tour_id: string;
+	company: string;
+	start_time: string | null;
+	/** EPC of the ambassador whose scan loaded this roster (shown as arrived). */
+	scanned_epc: string;
+	people: WelcomeUser[];
+};
+
 const WS_URL = "ws://localhost:3001";
 
-export function connectWelcomeSocket(onUser: (user: WelcomeUser) => void) {
+export type WelcomeSocketHandlers = {
+	onWelcome: (user: WelcomeUser) => void;
+	onTourRoster?: (payload: TourRosterPayload) => void;
+};
+
+export function connectWelcomeSocket(handlers: WelcomeSocketHandlers) {
 	let ws: WebSocket;
 
 	function connect() {
@@ -20,7 +37,9 @@ export function connectWelcomeSocket(onUser: (user: WelcomeUser) => void) {
 		ws.onmessage = (event) => {
 			const msg = JSON.parse(event.data);
 			if (msg.type === "welcome") {
-				onUser(msg.data as WelcomeUser);
+				handlers.onWelcome(msg.data as WelcomeUser);
+			} else if (msg.type === "tour_roster" && handlers.onTourRoster) {
+				handlers.onTourRoster(msg.data as TourRosterPayload);
 			}
 		};
 

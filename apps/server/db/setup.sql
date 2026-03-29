@@ -1,15 +1,51 @@
--- Attendee: people with RFID name tags
-CREATE TABLE IF NOT EXISTS attendee (
-  id         SERIAL PRIMARY KEY,
-  epc        TEXT UNIQUE NOT NULL,
-  first_name TEXT NOT NULL,
-  last_name  TEXT NOT NULL,
-  email      TEXT,
-  company    TEXT,
-  title      TEXT,
-  photo_url  TEXT,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+-- Enum for people.role (extend values here if the DB adds more labels)
+DO $$ BEGIN
+  CREATE TYPE tour_role AS ENUM ('visitor', 'ambassador');
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
+
+-- Sequence preserved name for migrations from `attendee`
+CREATE SEQUENCE IF NOT EXISTS attendee_id_seq;
+
+-- tours first (people.tour_id references this; ambassador FK added after people exists)
+CREATE TABLE IF NOT EXISTS tours (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  company character varying(255) NOT NULL,
+  ambassador_id integer,
+  start_time timestamp with time zone,
+  created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT tours_pkey PRIMARY KEY (id)
 );
+
+CREATE TABLE IF NOT EXISTS people (
+  id integer NOT NULL DEFAULT nextval('attendee_id_seq'::regclass),
+  epc text NOT NULL,
+  first_name text NOT NULL,
+  last_name text NOT NULL,
+  email text,
+  company text,
+  title text,
+  photo_url text,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  role tour_role NOT NULL DEFAULT 'visitor'::tour_role,
+  tour_id uuid,
+  CONSTRAINT attendee_pkey PRIMARY KEY (id),
+  CONSTRAINT attendee_epc_key UNIQUE (epc),
+  CONSTRAINT people_tour_id_fkey FOREIGN KEY (tour_id)
+    REFERENCES public.tours (id) MATCH SIMPLE
+    ON UPDATE NO ACTION
+    ON DELETE SET NULL
+);
+
+ALTER TABLE tours DROP CONSTRAINT IF EXISTS tours_ambassador_id_fkey;
+ALTER TABLE tours
+  ADD CONSTRAINT tours_ambassador_id_fkey FOREIGN KEY (ambassador_id)
+    REFERENCES public.people (id) MATCH SIMPLE
+    ON UPDATE NO ACTION
+    ON DELETE SET NULL;
+
+ALTER TABLE tours ADD COLUMN IF NOT EXISTS start_time TIMESTAMPTZ;
 
 -- Tour events: rich RFID read events from the reader
 CREATE TABLE IF NOT EXISTS tour_event (
