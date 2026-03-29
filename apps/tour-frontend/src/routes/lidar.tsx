@@ -30,12 +30,21 @@ type CamPose = {
 };
 
 const DEFAULT_CAMERA: CamPose = {
-	position: [2.93, -0.19, -0.84],
+	position: [2.55, -0.19, -0.84],
 	target: [-2.04, -0.77, -0.81],
 	center: [-2.04, -0.77, -0.81],
 };
 
 const CAMERA_DISTANCE = 0.8;
+
+// Manual center overrides for meshes where bounding box calculation is off
+const CENTER_OVERRIDES: Record<string, [number, number, number]> = {
+	hot_shine: [0.29, 0.03, -0.44],
+	armor_all: [0.48, -1.18, -0.43],
+	ozark_trail: [0.34, 0.04, -1.32],
+	// engraving_kit bbox has stray verts spanning two shelves — pin to actual product location
+	engraving_kit: [0.41, -0.45, -1.15],
+};
 
 /** Compute camera poses from mesh bounding boxes */
 function buildCamerasFromScene(
@@ -54,20 +63,32 @@ function buildCamerasFromScene(
 			const center = new THREE.Vector3();
 			box.getCenter(center);
 			center.applyMatrix4(child.matrixWorld);
-			// 10° offset to the left so product sits slightly off-center
+
+			const min = box.min.clone().applyMatrix4(child.matrixWorld);
+			const max = box.max.clone().applyMatrix4(child.matrixWorld);
+			console.log(
+				`[lidar] "${name}" bbox: min [${min.x.toFixed(2)}, ${min.y.toFixed(2)}, ${min.z.toFixed(2)}] max [${max.x.toFixed(2)}, ${max.y.toFixed(2)}, ${max.z.toFixed(2)}] center [${center.x.toFixed(2)}, ${center.y.toFixed(2)}, ${center.z.toFixed(2)}]`,
+			);
+
+			// Apply manual override if available
+			if (CENTER_OVERRIDES[name]) {
+				const [ox, oy, oz] = CENTER_OVERRIDES[name];
+				center.set(ox, oy, oz);
+				console.log(`[lidar] "${name}" using manual override: [${ox}, ${oy}, ${oz}]`);
+			}
+
+			// Offset camera angle and lookAt so product sits in the left ~40% of screen
 			const angleOffset = CAMERA_DISTANCE * Math.tan(10 * (Math.PI / 180));
+			const screenOffset = 0.2;
 			cameras[name] = {
 				position: [
 					center.x + CAMERA_DISTANCE,
 					center.y,
 					center.z + angleOffset,
 				],
-				target: [center.x, center.y, center.z],
+				target: [center.x, center.y, center.z - screenOffset],
 				center: [center.x, center.y, center.z],
 			};
-			console.log(
-				`[lidar] Camera for "${name}": center [${center.x.toFixed(2)}, ${center.y.toFixed(2)}, ${center.z.toFixed(2)}]`,
-			);
 		}
 	});
 	return cameras;
@@ -129,7 +150,7 @@ function ShelfModel({
 				if (isActive) {
 					child.material = child.material.clone();
 					child.material.emissive = new THREE.Color(0x00ff44);
-					child.material.emissiveIntensity = 2.5;
+					child.material.emissiveIntensity = 1.9;
 					activeMeshes.current.push(child);
 				} else if (child.userData._originalMaterial) {
 					child.material = child.userData._originalMaterial;
@@ -141,7 +162,7 @@ function ShelfModel({
 	// Pulse the glow intensity
 	useFrame(({ clock }) => {
 		const t = clock.getElapsedTime();
-		const pulse = 1.8 + Math.sin(t * 3) * 0.7;
+		const pulse = 1.35 + Math.sin(t * 3) * 0.5;
 		for (const mesh of activeMeshes.current) {
 			const mat = mesh.material as THREE.MeshStandardMaterial;
 			mat.emissiveIntensity = pulse;
@@ -216,18 +237,18 @@ function LidarPage() {
 						onCamerasReady={setProductCameras}
 					/>
 					<Environment preset="warehouse" />
-					<fog attach="fog" args={["#9a7d5a", 3, 8]} />
-					<color attach="background" args={["#9a7d5a"]} />
+					<fog attach="fog" args={["#7a6244", 3, 8]} />
+					<color attach="background" args={["#7a6244"]} />
 					<ProductDots
 						cameras={productCameras}
 						activeProduct={activeProduct}
 					/>
 					<CameraController cam={cam} />
-					<EffectComposer>
+						<EffectComposer>
 						<Bloom
 							luminanceThreshold={1.0}
 							luminanceSmoothing={0.3}
-							intensity={1.2}
+							intensity={0.3}
 							mipmapBlur
 						/>
 						<ToneMapping />
@@ -238,18 +259,18 @@ function LidarPage() {
 			{/* Product info overlay — right side */}
 			{productInfo && (
 				<div className="absolute inset-y-0 right-0 flex w-[45%] items-center justify-center p-12">
-					<div className="w-full max-w-lg border border-black/10 bg-white p-14 text-black shadow-2xl">
+					<div className="w-full max-w-lg border border-black/10 bg-white/70 p-14 text-black shadow-2xl backdrop-blur-sm">
 						{productInfo.item_url &&
 							productInfo.item_url !== "-" && (
 								<div className="mb-8 flex items-center justify-center">
 									<img
 										src={productInfo.item_url}
 										alt={productInfo.item_desc.replace(/_/g, " ")}
-										className="h-56 w-56 object-contain brightness-105 contrast-110"
+										className="h-56 w-56 object-contain"
 									/>
 								</div>
 							)}
-						<h2 className="text-5xl font-bold leading-tight">
+						<h2 className="text-4xl font-bold leading-tight">
 							{PRODUCT_NAMES[productInfo.item_desc] ||
 								productInfo.item_desc.replace(/_/g, " ")}
 						</h2>
