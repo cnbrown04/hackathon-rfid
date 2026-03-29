@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "created_at_ms": 1774773784923,
+  "epc_prefix": "E280699500005001FAD",
+  "distance_unit": "ft",
+  "feature_window_ms": 1000,
+  "notes": "deterministic calibration fingerprint (train tags only)",
+  "train_point_count": 0,
+  "csv_train_tag_count": 14,
+  "csv_test_tag_count": 6,
+  "points": []
+}

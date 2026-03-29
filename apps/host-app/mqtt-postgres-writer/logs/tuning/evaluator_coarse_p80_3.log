@@ -1,0 +1,11 @@
+Connected MQTT tcp://127.0.0.1:1883 and subscribed rfid/+/epc/+/localization-calibrated
+eval stats in=56 used=0 ignored=56 invalid=0 test_epcs=6
+eval stats in=138 used=0 ignored=138 invalid=0 test_epcs=6
+eval stats in=224 used=0 ignored=224 invalid=0 test_epcs=6
+eval stats in=312 used=0 ignored=312 invalid=0 test_epcs=6
+eval stats in=407 used=0 ignored=407 invalid=0 test_epcs=6
+eval stats in=494 used=0 ignored=494 invalid=0 test_epcs=6
+eval stats in=565 used=0 ignored=565 invalid=0 test_epcs=6
+eval stats in=665 used=0 ignored=665 invalid=0 test_epcs=6
+eval stats in=751 used=0 ignored=751 invalid=0 test_epcs=6
+Evaluation complete. Wrote /home/rfidlab/hackathon-rfid/apps/host-app/mqtt-postgres-writer/logs/tuning/eval_coarse_p80_3.json and /home/rfidlab/hackathon-rfid/apps/host-app/mqtt-postgres-writer/logs/tuning/eval_coarse_p80_3.csv

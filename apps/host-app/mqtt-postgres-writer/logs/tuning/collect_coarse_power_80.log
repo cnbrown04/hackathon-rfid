@@ -1,0 +1,10 @@
+Connected MQTT tcp://127.0.0.1:1883 and subscribed rfid/+/epc/+/features-rolling
+calibrated stats mode=collect-fingerprint in=129 invalid=0 ignored=129 out=0 pub_errors=0 active_keys=0
+calibrated stats mode=collect-fingerprint in=258 invalid=0 ignored=258 out=0 pub_errors=0 active_keys=0
+calibrated stats mode=collect-fingerprint in=377 invalid=0 ignored=377 out=0 pub_errors=0 active_keys=0
+calibrated stats mode=collect-fingerprint in=509 invalid=0 ignored=509 out=0 pub_errors=0 active_keys=0
+calibrated stats mode=collect-fingerprint in=642 invalid=0 ignored=642 out=0 pub_errors=0 active_keys=0
+calibrated stats mode=collect-fingerprint in=771 invalid=0 ignored=771 out=0 pub_errors=0 active_keys=0
+calibrated stats mode=collect-fingerprint in=906 invalid=0 ignored=906 out=0 pub_errors=0 active_keys=0
+calibrated stats mode=collect-fingerprint in=1021 invalid=0 ignored=1021 out=0 pub_errors=0 active_keys=0
+Saved fingerprint JSON ./calibration_fingerprint.json with 0 points

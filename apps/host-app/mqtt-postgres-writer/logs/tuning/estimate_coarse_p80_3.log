@@ -1,0 +1,10 @@
+Connected MQTT tcp://127.0.0.1:1883 and subscribed rfid/+/epc/+/features-rolling
+calibrated stats mode=estimate in=359 invalid=0 ignored=303 out=56 pub_errors=0 active_keys=6
+calibrated stats mode=estimate in=719 invalid=0 ignored=581 out=138 pub_errors=0 active_keys=7
+calibrated stats mode=estimate in=1078 invalid=0 ignored=854 out=224 pub_errors=0 active_keys=8
+calibrated stats mode=estimate in=1431 invalid=0 ignored=1119 out=312 pub_errors=0 active_keys=7
+calibrated stats mode=estimate in=1789 invalid=0 ignored=1382 out=407 pub_errors=0 active_keys=7
+calibrated stats mode=estimate in=2151 invalid=0 ignored=1655 out=496 pub_errors=0 active_keys=7
+calibrated stats mode=estimate in=2496 invalid=0 ignored=1927 out=569 pub_errors=0 active_keys=7
+calibrated stats mode=estimate in=2850 invalid=0 ignored=2179 out=671 pub_errors=0 active_keys=8
+calibrated stats mode=estimate in=3187 invalid=0 ignored=2436 out=751 pub_errors=0 active_keys=7

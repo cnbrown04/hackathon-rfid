@@ -1,0 +1,12 @@
+{
+  "generated_at_ms": 1774770332457,
+  "metrics": {
+    "rows_used": 0,
+    "line_accuracy": 0.0,
+    "distance_mae_ft": 5.0,
+    "distance_p90_error_ft": 5.0,
+    "global_rmse_ft": 5.0,
+    "switch_rate_per_min": 0.0,
+    "score": 1000000000.0
+  }
+}

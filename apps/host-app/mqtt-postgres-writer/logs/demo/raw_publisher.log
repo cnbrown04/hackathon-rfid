@@ -1,0 +1,12 @@
+WARNING: An illegal reflective access operation has occurred
+WARNING: Illegal reflective access by org.eclipse.paho.client.mqttv3.internal.FileLock (file:/home/rfidlab/hackathon-rfid/apps/host-app/linux64_sdk/lib/org.eclipse.paho.client.mqttv3-1.2.5.jar) to method sun.nio.ch.FileLockImpl.release()
+WARNING: Please consider reporting this to the maintainers of org.eclipse.paho.client.mqttv3.internal.FileLock
+WARNING: Use --illegal-access=warn to enable warnings of further illegal reflective access operations
+WARNING: All illegal access operations will be denied in a future release
+Connected MQTT tcp://127.0.0.1:1883 as rfid-raw-6da13233-3681-4d4a-b784-3b4e560fdf85
+Exception in thread "main" com.mot.rfid.api3.OperationFailureException
+	at com.mot.rfid.api3.ProcessErrorCode.ThrowException(ProcessErrorCode.java:20)
+	at com.mot.rfid.api3.RFIDReader.connect(RFIDReader.java:397)
+	at rfidsample4.RFIDRawReadPublisher.connectReader(RFIDRawReadPublisher.java:119)
+	at rfidsample4.RFIDRawReadPublisher.start(RFIDRawReadPublisher.java:68)
+	at rfidsample4.RFIDRawReadPublisher.main(RFIDRawReadPublisher.java:61)

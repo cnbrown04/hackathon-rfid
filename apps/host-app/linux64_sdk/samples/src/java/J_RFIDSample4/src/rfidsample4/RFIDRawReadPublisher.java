@@ -530,7 +530,7 @@ public class RFIDRawReadPublisher {
             AppConfig cfg = new AppConfig();
             cfg.host = getRequired(props, "host");
             cfg.port = parseInt(getOptional(props, "port", "5084"));
-            cfg.readerId = getOptional(props, "reader.id", "reader-1");
+            cfg.readerId = getOptional(props, "reader.id", "localize");
             cfg.sourceId = getOptional(props, "source.id", "reader1-raw-v1");
 
             cfg.mqttBrokerUrl = getRequired(props, "mqtt.brokerUrl");
