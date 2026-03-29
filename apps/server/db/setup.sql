@@ -22,7 +22,6 @@ CREATE TABLE IF NOT EXISTS tour_event (
   antenna_id                  INTEGER,
   tour_id                     TEXT,
   epc                         TEXT,
-  epc_list_csv                TEXT,
   window_start_epoch_sec      BIGINT,
   window_end_epoch_sec        BIGINT,
   read_count_60s              BIGINT,

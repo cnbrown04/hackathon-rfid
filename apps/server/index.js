@@ -25,16 +25,48 @@ function broadcast(data) {
 
 // --- Boot sequence ---
 async function start() {
-  // 1. Connect the LISTEN client
+  // 1. Clean slate for testing
+  await pool.query("TRUNCATE tour_event RESTART IDENTITY");
+  console.log("Truncated tour_event table");
+
+  // 2. Connect the LISTEN client
   await listener.connect();
   await listener.query("LISTEN new_event");
   console.log("Listening for Postgres NOTIFY on channel: new_event");
 
-  // 2. Forward every notification to all WebSocket clients
-  listener.on("notification", (msg) => {
+  // 3. Forward every notification to all WebSocket clients
+  listener.on("notification", async (msg) => {
     const event = JSON.parse(msg.payload);
     console.log("Event received:", event);
     broadcast({ type: "tour_event", data: event });
+
+    // reader-2 is the welcome reader — look up the attendee and broadcast
+    if (event.reader_id === "reader-2" && event.epc) {
+      try {
+        const result = await pool.query(
+          "SELECT * FROM attendee WHERE epc = $1",
+          [event.epc]
+        );
+        if (result.rows.length > 0) {
+          const person = result.rows[0];
+          broadcast({
+            type: "welcome",
+            data: {
+              first_name: person.first_name,
+              last_name: person.last_name,
+              email: person.email,
+              company: person.company,
+              title: person.title,
+              photo_url: person.photo_url,
+              epc: person.epc,
+              arrived_at: new Date().toISOString(),
+            },
+          });
+        }
+      } catch (err) {
+        console.error("Welcome lookup error:", err);
+      }
+    }
   });
 
   // 3. Accept WebSocket connections
@@ -78,17 +110,17 @@ const httpServer = http.createServer(async (req, res) => {
         const result = await pool.query(
           `INSERT INTO tour_event (
             event_id, event_type, event_ts, site_id, reader_id, antenna_id,
-            tour_id, epc, epc_list_csv, window_start_epoch_sec, window_end_epoch_sec,
+            tour_id, epc, window_start_epoch_sec, window_end_epoch_sec,
             read_count_60s, unique_tag_count_60s, avg_rssi_60s,
             baseline_read_count, baseline_avg_rssi,
             count_drop_pct, rssi_drop_db,
             threshold_count_drop_pct, threshold_rssi_drop_db,
             consecutive_checks_required
-          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
+          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
           RETURNING *`,
           [
             e.event_id, e.event_type, e.event_ts, e.site_id, e.reader_id, e.antenna_id,
-            e.tour_id, e.epc, e.epc_list_csv, e.window_start_epoch_sec, e.window_end_epoch_sec,
+            e.tour_id, e.epc, e.window_start_epoch_sec, e.window_end_epoch_sec,
             e.read_count_60s, e.unique_tag_count_60s, e.avg_rssi_60s,
             e.baseline_read_count, e.baseline_avg_rssi,
             e.count_drop_pct, e.rssi_drop_db,
@@ -193,7 +225,7 @@ const httpServer = http.createServer(async (req, res) => {
   res.end("Not found");
 });
 
-const HTTP_PORT = Number(process.env.HTTP_PORT) || 3000;
+const HTTP_PORT = Number(process.env.HTTP_PORT) || 3002;
 httpServer.listen(HTTP_PORT, () => {
   console.log(`HTTP server running on http://localhost:${HTTP_PORT}`);
 });
