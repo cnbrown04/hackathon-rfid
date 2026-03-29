@@ -75,8 +75,23 @@ function readJsonBody(req) {
   });
 }
 
+/** Merged into every HTTP response so browsers always see CORS (writeHead does not reliably keep prior setHeader). */
+function corsHeaders() {
+  return {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS",
+    "Access-Control-Allow-Headers":
+      "Content-Type, Authorization, X-Requested-With, Accept, Origin",
+    "Access-Control-Max-Age": "86400",
+  };
+}
+
+function withCors(extra = {}) {
+  return { ...corsHeaders(), ...extra };
+}
+
 function json(res, status, obj) {
-  res.writeHead(status, { "Content-Type": "application/json" });
+  res.writeHead(status, withCors({ "Content-Type": "application/json" }));
   res.end(JSON.stringify(obj));
 }
 
@@ -233,27 +248,31 @@ async function start() {
 
 // --- REST-style scan insert (for testing / RFID reader HTTP posts) ---
 const httpServer = http.createServer(async (req, res) => {
-  // CORS headers for frontend dev
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
-
   if (req.method === "OPTIONS") {
-    res.writeHead(204);
+    res.writeHead(204, withCors());
     res.end();
     return;
   }
 
-  const pathname = new URL(req.url, "http://localhost").pathname;
+  let pathname;
+  try {
+    pathname = new URL(req.url, "http://localhost").pathname;
+  } catch {
+    json(res, 400, { error: "Bad request" });
+    return;
+  }
 
   // GET /openapi.json — OpenAPI document as JSON (admin UI, codegen, etc.)
   if (req.method === "GET" && pathname === "/openapi.json") {
     try {
       const spec = getOpenApiSpec();
-      res.writeHead(200, {
-        "Content-Type": "application/json; charset=utf-8",
-        "Cache-Control": "no-store",
-      });
+      res.writeHead(
+        200,
+        withCors({
+          "Content-Type": "application/json; charset=utf-8",
+          "Cache-Control": "no-store",
+        })
+      );
       res.end(JSON.stringify(spec));
     } catch (err) {
       console.error("OpenAPI spec:", err);
@@ -272,10 +291,13 @@ const httpServer = http.createServer(async (req, res) => {
          ORDER BY epc ASC`
       );
       const lines = result.rows.map((row) => `${row.epc},${row.tour_id}`);
-      res.writeHead(200, {
-        "Content-Type": "text/csv; charset=utf-8",
-        "Cache-Control": "no-store",
-      });
+      res.writeHead(
+        200,
+        withCors({
+          "Content-Type": "text/csv; charset=utf-8",
+          "Cache-Control": "no-store",
+        })
+      );
       res.end(lines.join("\n") + (lines.length > 0 ? "\n" : ""));
     } catch (err) {
       console.error("epc-tour-map query:", err);
@@ -688,23 +710,26 @@ const httpServer = http.createServer(async (req, res) => {
   }
 
   // POST /event — insert a tour_event row (triggers NOTIFY automatically)
-  if (req.method === "POST" && req.url === "/event") {
+  if (req.method === "POST" && pathname === "/event") {
     let body = "";
     req.on("data", (chunk) => (body += chunk));
     req.on("end", async () => {
       try {
         const e = JSON.parse(body);
         if (!e.event_id || !e.event_type || !e.event_ts) {
-          res.writeHead(400, { "Content-Type": "application/json" });
+          res.writeHead(
+            400,
+            withCors({ "Content-Type": "application/json" })
+          );
           res.end(JSON.stringify({ error: "event_id, event_type, and event_ts are required" }));
           return;
         }
         const result = await insertFullTourEvent(pool, e);
-        res.writeHead(201, { "Content-Type": "application/json" });
+        res.writeHead(201, withCors({ "Content-Type": "application/json" }));
         res.end(JSON.stringify(result.rows[0]));
       } catch (err) {
         console.error("Insert error:", err);
-        res.writeHead(500, { "Content-Type": "application/json" });
+        res.writeHead(500, withCors({ "Content-Type": "application/json" }));
         res.end(JSON.stringify({ error: "Internal server error" }));
       }
     });
@@ -712,29 +737,29 @@ const httpServer = http.createServer(async (req, res) => {
   }
 
   // GET /events — fetch recent tour events
-  if (req.method === "GET" && req.url === "/events") {
+  if (req.method === "GET" && pathname === "/events") {
     try {
       const result = await pool.query(
         "SELECT * FROM tour_event ORDER BY event_ts DESC LIMIT 50"
       );
-      res.writeHead(200, { "Content-Type": "application/json" });
+      res.writeHead(200, withCors({ "Content-Type": "application/json" }));
       res.end(JSON.stringify(result.rows));
     } catch (err) {
       console.error("Query error:", err);
-      res.writeHead(500, { "Content-Type": "application/json" });
+      res.writeHead(500, withCors({ "Content-Type": "application/json" }));
       res.end(JSON.stringify({ error: "Internal server error" }));
     }
     return;
   }
 
   // Health check
-  if (req.method === "GET" && req.url === "/health") {
-    res.writeHead(200, { "Content-Type": "application/json" });
+  if (req.method === "GET" && pathname === "/health") {
+    res.writeHead(200, withCors({ "Content-Type": "application/json" }));
     res.end(JSON.stringify({ status: "ok" }));
     return;
   }
 
-  res.writeHead(404);
+  res.writeHead(404, withCors({ "Content-Type": "text/plain; charset=utf-8" }));
   res.end("Not found");
 });
 
