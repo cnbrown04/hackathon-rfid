@@ -636,6 +636,113 @@ const httpServer = http.createServer(async (req, res) => {
       }
     }
 
+    // GET/POST /api/admin/lidar-items — shelf catalog for reader-3 → lidar_scan WebSocket
+    // PUT/DELETE /api/admin/lidar-items/:epc
+    if (segments[0] === "lidar-items") {
+      if (req.method === "GET" && segments.length === 1) {
+        pool
+          .query(
+            "SELECT epc, upc, item_url, item_desc FROM lidar_items ORDER BY epc ASC"
+          )
+          .then((result) => json(res, 200, result.rows))
+          .catch((err) => {
+            console.error(err);
+            json(res, 500, { error: "Database error" });
+          });
+        return;
+      }
+
+      if (req.method === "POST" && segments.length === 1) {
+        readJsonBody(req)
+          .then(async (body) => {
+            const epc = typeof body.epc === "string" ? body.epc.trim() : "";
+            if (!epc) {
+              json(res, 400, { error: "epc is required" });
+              return;
+            }
+            const upc =
+              body.upc != null && String(body.upc).trim() !== ""
+                ? String(body.upc).trim()
+                : null;
+            const itemUrl =
+              body.item_url != null && String(body.item_url).trim() !== ""
+                ? String(body.item_url).trim()
+                : null;
+            const itemDesc =
+              body.item_desc != null && String(body.item_desc).trim() !== ""
+                ? String(body.item_desc).trim()
+                : null;
+            const result = await pool.query(
+              `INSERT INTO lidar_items (epc, upc, item_url, item_desc) VALUES ($1,$2,$3,$4)
+               RETURNING epc, upc, item_url, item_desc`,
+              [epc, upc, itemUrl, itemDesc]
+            );
+            json(res, 201, result.rows[0]);
+          })
+          .catch((err) => {
+            console.error(err);
+            if (err.code === "23505") {
+              json(res, 409, { error: "EPC already exists" });
+            } else {
+              json(res, 500, { error: "Database error" });
+            }
+          });
+        return;
+      }
+
+      if (segments.length === 2) {
+        const epcKey = decodeURIComponent(segments[1]);
+        if (req.method === "PUT") {
+          readJsonBody(req)
+            .then(async (body) => {
+              const upc =
+                body.upc != null && String(body.upc).trim() !== ""
+                  ? String(body.upc).trim()
+                  : null;
+              const itemUrl =
+                body.item_url != null && String(body.item_url).trim() !== ""
+                  ? String(body.item_url).trim()
+                  : null;
+              const itemDesc =
+                body.item_desc != null && String(body.item_desc).trim() !== ""
+                  ? String(body.item_desc).trim()
+                  : null;
+              const result = await pool.query(
+                `UPDATE lidar_items SET upc = $1, item_url = $2, item_desc = $3 WHERE epc = $4
+                 RETURNING epc, upc, item_url, item_desc`,
+                [upc, itemUrl, itemDesc, epcKey]
+              );
+              if (result.rows.length === 0) {
+                json(res, 404, { error: "Not found" });
+                return;
+              }
+              json(res, 200, result.rows[0]);
+            })
+            .catch((err) => {
+              console.error(err);
+              json(res, 500, { error: "Database error" });
+            });
+          return;
+        }
+        if (req.method === "DELETE") {
+          pool
+            .query("DELETE FROM lidar_items WHERE epc = $1 RETURNING epc", [epcKey])
+            .then((result) => {
+              if (result.rows.length === 0) {
+                json(res, 404, { error: "Not found" });
+                return;
+              }
+              json(res, 200, { deleted: epcKey });
+            })
+            .catch((err) => {
+              console.error(err);
+              json(res, 500, { error: "Database error" });
+            });
+          return;
+        }
+      }
+    }
+
     // GET /api/admin/tour-events — recent tour_event rows (for admin UI)
     // DELETE /api/admin/tour-events — truncate table (dev / reset)
     if (segments[0] === "tour-events" && segments.length === 1) {

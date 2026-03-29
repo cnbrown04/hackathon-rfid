@@ -159,6 +159,67 @@ export async function deleteTour(id: string): Promise<void> {
 	if (!r.ok) throw new Error(await parseError(r));
 }
 
+export type LidarItemRow = {
+	epc: string;
+	upc: string | null;
+	item_url: string | null;
+	item_desc: string | null;
+};
+
+export async function fetchLidarItems(): Promise<LidarItemRow[]> {
+	const r = await fetch(`${API_BASE}/api/admin/lidar-items`, {
+		headers: authHeaders(),
+	});
+	if (!r.ok) throw new Error(await parseError(r));
+	return r.json() as Promise<LidarItemRow[]>;
+}
+
+export async function createLidarItem(body: {
+	epc: string;
+	upc?: string | null;
+	item_url?: string | null;
+	item_desc?: string | null;
+}): Promise<LidarItemRow> {
+	const r = await fetch(`${API_BASE}/api/admin/lidar-items`, {
+		method: "POST",
+		headers: authHeaders(),
+		body: JSON.stringify(body),
+	});
+	if (!r.ok) throw new Error(await parseError(r));
+	return r.json() as Promise<LidarItemRow>;
+}
+
+export async function updateLidarItem(
+	epc: string,
+	body: {
+		upc?: string | null;
+		item_url?: string | null;
+		item_desc?: string | null;
+	},
+): Promise<LidarItemRow> {
+	const r = await fetch(
+		`${API_BASE}/api/admin/lidar-items/${encodeURIComponent(epc)}`,
+		{
+			method: "PUT",
+			headers: authHeaders(),
+			body: JSON.stringify(body),
+		},
+	);
+	if (!r.ok) throw new Error(await parseError(r));
+	return r.json() as Promise<LidarItemRow>;
+}
+
+export async function deleteLidarItem(epc: string): Promise<void> {
+	const r = await fetch(
+		`${API_BASE}/api/admin/lidar-items/${encodeURIComponent(epc)}`,
+		{
+			method: "DELETE",
+			headers: authHeaders(),
+		},
+	);
+	if (!r.ok) throw new Error(await parseError(r));
+}
+
 /** Persists a fake `tour_event` (same as POST `/event`); WebSocket updates come only from NOTIFY → LISTEN on the server. */
 /** `tour_id` on the inserted row is resolved server-side (ambassador → nearest tour by start_time; visitor → people.tour_id). */
 export async function simulateTourEvent(body: {

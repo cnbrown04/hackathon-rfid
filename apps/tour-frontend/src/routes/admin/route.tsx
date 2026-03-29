@@ -6,6 +6,7 @@ import {
 } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { Button } from "#/components/ui/button";
+import { Separator } from "#/components/ui/separator";
 import { Input } from "#/components/ui/input";
 import { Label } from "#/components/ui/label";
 import {
@@ -37,7 +38,12 @@ function NavLink({
 	to,
 	children,
 }: {
-	to: "/admin/people" | "/admin/tours" | "/admin/simulate" | "/admin/api";
+	to:
+		| "/admin/people"
+		| "/admin/tours"
+		| "/admin/lidar-items"
+		| "/admin/simulate"
+		| "/admin/api";
 	children: React.ReactNode;
 }) {
 	const pathname = useRouterState({ select: (s) => s.location.pathname });
@@ -139,6 +145,8 @@ function AdminLayout() {
 					<nav className="flex min-w-0 flex-wrap items-center gap-x-6 gap-y-2 text-sm font-medium">
 						<NavLink to="/admin/people">People</NavLink>
 						<NavLink to="/admin/tours">Tours</NavLink>
+						<NavLink to="/admin/lidar-items">LiDAR items</NavLink>
+						<Separator orientation="vertical" className="h-4 shrink-0" />
 						<NavLink to="/admin/simulate">Simulate</NavLink>
 						<NavLink to="/admin/api">API</NavLink>
 					</nav>

@@ -361,7 +361,7 @@ function ManagePeople() {
 			</AlertDialog>
 
 			<Dialog open={editOpen} onOpenChange={setEditOpen}>
-				<DialogContent className="flex max-h-[90dvh] min-h-0 min-w-0 w-full max-w-4xl flex-col gap-6 overflow-hidden p-4 sm:p-6">
+				<DialogContent className="flex max-h-[90dvh] min-h-0 min-w-0 w-full flex-col gap-6 overflow-hidden p-4 sm:max-w-6xl sm:p-6">
 					<DialogHeader>
 						<DialogTitle>Edit person</DialogTitle>
 					</DialogHeader>

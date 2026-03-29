@@ -356,6 +356,100 @@ paths:
         "500":
           $ref: "#/components/responses/JsonError"
 
+  /api/admin/lidar-items:
+    get:
+      tags: [Admin]
+      summary: List LiDAR shelf catalog rows
+      description: Used when `reader-3` events resolve product info for `lidar_scan` WebSocket messages.
+      security: [AdminBearer: []]
+      operationId: listLidarItems
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/LidarItem"
+        "401":
+          $ref: "#/components/responses/JsonError"
+        "500":
+          $ref: "#/components/responses/JsonError"
+    post:
+      tags: [Admin]
+      summary: Create LiDAR catalog row
+      security: [AdminBearer: []]
+      operationId: createLidarItem
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LidarItemCreate"
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LidarItem"
+        "400":
+          $ref: "#/components/responses/JsonError"
+        "401":
+          $ref: "#/components/responses/JsonError"
+        "409":
+          $ref: "#/components/responses/JsonError"
+        "500":
+          $ref: "#/components/responses/JsonError"
+
+  /api/admin/lidar-items/{epc}:
+    put:
+      tags: [Admin]
+      summary: Update LiDAR catalog row
+      security: [AdminBearer: []]
+      operationId: updateLidarItem
+      parameters:
+        - $ref: "#/components/parameters/LidarEpc"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LidarItemUpdate"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LidarItem"
+        "401":
+          $ref: "#/components/responses/JsonError"
+        "404":
+          $ref: "#/components/responses/JsonError"
+        "500":
+          $ref: "#/components/responses/JsonError"
+    delete:
+      tags: [Admin]
+      summary: Delete LiDAR catalog row
+      security: [AdminBearer: []]
+      operationId: deleteLidarItem
+      parameters:
+        - $ref: "#/components/parameters/LidarEpc"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted:
+                    type: string
+        "401":
+          $ref: "#/components/responses/JsonError"
+        "404":
+          $ref: "#/components/responses/JsonError"
+        "500":
+          $ref: "#/components/responses/JsonError"
+
   /api/admin/clear-welcome-screens:
     post:
       tags: [Admin]
@@ -488,6 +582,13 @@ components:
       schema:
         type: string
         format: uuid
+    LidarEpc:
+      name: epc
+      in: path
+      required: true
+      description: URL-encoded RFID EPC (primary key)
+      schema:
+        type: string
 
   responses:
     JsonError:
@@ -503,6 +604,50 @@ components:
       properties:
         error:
           type: string
+
+    LidarItem:
+      type: object
+      properties:
+        epc:
+          type: string
+        upc:
+          type: string
+          nullable: true
+        item_url:
+          type: string
+          nullable: true
+        item_desc:
+          type: string
+          nullable: true
+
+    LidarItemCreate:
+      type: object
+      required: [epc]
+      properties:
+        epc:
+          type: string
+        upc:
+          type: string
+          nullable: true
+        item_url:
+          type: string
+          nullable: true
+        item_desc:
+          type: string
+          nullable: true
+
+    LidarItemUpdate:
+      type: object
+      properties:
+        upc:
+          type: string
+          nullable: true
+        item_url:
+          type: string
+          nullable: true
+        item_desc:
+          type: string
+          nullable: true
 
     Person:
       type: object

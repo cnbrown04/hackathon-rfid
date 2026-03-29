@@ -95,18 +95,17 @@ export function ThemeToggle() {
 	}
 
 	return (
-		<div className="fixed top-4 right-4 z-50">
+		<div className="pointer-events-none fixed bottom-3 right-3 z-40 md:bottom-4 md:right-4">
 			<Button
 				type="button"
-				variant="outline"
-				size="sm"
-				className="gap-2 bg-background/80 shadow-sm backdrop-blur-sm"
+				variant="ghost"
+				size="icon-sm"
+				className="pointer-events-auto text-muted-foreground opacity-70 shadow-none hover:bg-muted/60 hover:opacity-100"
 				onClick={onClick}
 				aria-label={`${label}. Click to cycle system, light, or dark.`}
 				title={`${label} — click to cycle`}
 			>
 				<Icon className="size-4" aria-hidden />
-				<span className="hidden sm:inline">{label}</span>
 			</Button>
 		</div>
 	);
