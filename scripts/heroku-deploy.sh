@@ -1,24 +1,25 @@
 #!/usr/bin/env bash
-# Heroku: hackathon-api (Node server) + hackathon-web (tour-frontend).
-# Requires: Heroku CLI, logged in (`heroku login`), apps already created with these names.
+# Heroku: CLI app names are hackathon-api + hackathon-web; *.herokuapp.com hostnames may include a Heroku suffix.
+# Requires: Heroku CLI, logged in (`heroku login`), apps already created.
 #
 # If apps live under a Heroku team (e.g. `heroku apps -t auburn-rfid-lab`), set:
 #   export HEROKU_TEAM=auburn-rfid-lab
 #
 # Usage:
-#   ./scripts/heroku-deploy.sh remotes    # add git remotes heroku-api / heroku-web
-#   ./scripts/heroku-deploy.sh bootstrap # one-time buildpacks + PROJECT_PATH + VITE_* for web
-#   ./scripts/heroku-deploy.sh push       # git push current branch to both Heroku remotes (deploys)
+#   ./scripts/heroku-deploy.sh remotes         # sync git remotes heroku-api / heroku-web → API_APP / WEB_APP
+#   ./scripts/heroku-deploy.sh bootstrap       # one-time buildpacks + PROJECT_PATH + VITE_* for web
+#   ./scripts/heroku-deploy.sh config-web-api  # only VITE_API_URL + VITE_WS_URL on WEB_APP (then redeploy web)
+#   ./scripts/heroku-deploy.sh push            # git push current branch to both Heroku remotes (deploys)
 #
-# Set on hackathon-api (dashboard or CLI): DATABASE_URL, ADMIN_PASSWORD, etc.
+# Set on the API app (dashboard or CLI): DATABASE_URL, ADMIN_PASSWORD, etc.
 
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-# Use the exact names from `heroku apps` (Heroku adds a suffix if the base name is taken).
-API_APP=hackathon-api
-WEB_APP=hackathon-web
+# CLI / dashboard app names (`heroku apps`). Override: export API_APP=… WEB_APP=…
+API_APP=${API_APP:-hackathon-api}
+WEB_APP=${WEB_APP:-hackathon-web}
 
 HEROKU_TEAM=${HEROKU_TEAM:-}
 
@@ -36,8 +37,16 @@ heroku_app_web_url() {
 }
 
 cmd_remotes() {
-  git remote get-url heroku-api >/dev/null 2>&1 || git remote add heroku-api "https://git.heroku.com/${API_APP}.git"
-  git remote get-url heroku-web >/dev/null 2>&1 || git remote add heroku-web "https://git.heroku.com/${WEB_APP}.git"
+  if git remote get-url heroku-api >/dev/null 2>&1; then
+    git remote set-url heroku-api "https://git.heroku.com/${API_APP}.git"
+  else
+    git remote add heroku-api "https://git.heroku.com/${API_APP}.git"
+  fi
+  if git remote get-url heroku-web >/dev/null 2>&1; then
+    git remote set-url heroku-web "https://git.heroku.com/${WEB_APP}.git"
+  else
+    git remote add heroku-web "https://git.heroku.com/${WEB_APP}.git"
+  fi
   echo "Remotes:"
   git remote -v | grep heroku- || true
 }
@@ -86,9 +95,32 @@ cmd_bootstrap() {
     echo "  heroku config:set -a ${API_APP} DATABASE_URL='postgresql://…' ADMIN_PASSWORD='…'"
   fi
   echo "Then: ./scripts/heroku-deploy.sh push"
-  echo "If the browser reports CORS on login, verify the API is really yours (Heroku HTML = wrong host or app not deployed):"
-  echo "  curl -sI \"${api_url}/health\""
-  echo "Redeploy ${WEB_APP} after API URL changes (rename app, custom domain): re-run bootstrap or config:set VITE_API_URL / VITE_WS_URL."
+  echo "If the browser reports CORS on login, the preflight often hit Heroku's HTML (e.g. \"No such app\") instead of this Node server — those responses have no Access-Control-Allow-Origin."
+  echo "  curl -sI \"${api_url}/health\"   # expect 200 + JSON from Node, not 404 HTML"
+  echo "  curl -sI -X OPTIONS \"${api_url}/api/admin/login\" -H 'Origin: https://example.com' -H 'Access-Control-Request-Method: POST' -H 'Access-Control-Request-Headers: content-type'   # expect 204 + access-control-*"
+  echo "Redeploy ${WEB_APP} after API URL changes (rename app, custom domain): re-run bootstrap or ./scripts/heroku-deploy.sh config-web-api."
+}
+
+cmd_config_web_api() {
+  if ! heroku_cli apps:info -a "$API_APP" &>/dev/null; then
+    echo "Heroku app '${API_APP}' not found for this account/team." >&2
+    exit 1
+  fi
+  if ! heroku_cli apps:info -a "$WEB_APP" &>/dev/null; then
+    echo "Heroku app '${WEB_APP}' not found for this account/team." >&2
+    exit 1
+  fi
+  local api_url
+  api_url="$(heroku_app_web_url "$API_APP")"
+  if [[ -z "$api_url" ]]; then
+    echo "Could not read web URL for ${API_APP}." >&2
+    exit 1
+  fi
+  echo "Setting ${WEB_APP} VITE_API_URL / VITE_WS_URL from ${API_APP} web_url: ${api_url}"
+  heroku_cli config:set -a "$WEB_APP" \
+    VITE_API_URL="$api_url" \
+    VITE_WS_URL="$(printf '%s' "$api_url" | sed 's/^https/wss/')"
+  echo "Redeploy ${WEB_APP} (e.g. git push heroku-web) so the Vite build embeds the new values."
 }
 
 cmd_push() {
@@ -102,9 +134,10 @@ cmd_push() {
 case "${1:-}" in
   remotes) cmd_remotes ;;
   bootstrap) cmd_bootstrap ;;
+  config-web-api) cmd_config_web_api ;;
   push) cmd_push ;;
   *)
-    echo "Usage: $0 remotes | bootstrap | push" >&2
+    echo "Usage: $0 remotes | bootstrap | config-web-api | push" >&2
     exit 1
     ;;
 esac
