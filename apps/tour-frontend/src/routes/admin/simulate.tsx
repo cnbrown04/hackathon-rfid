@@ -44,6 +44,7 @@ const READER_OPTIONS = [
 	{ value: "welcome", label: "welcome (welcome / tour roster)" },
 	{ value: "reader-1", label: "reader-1" },
 	{ value: "lidar", label: "lidar (shelf)" },
+	{ value: "lidar_reader", label: "lidar_reader (Zig host default)" },
 ] as const;
 
 export const Route = createFileRoute("/admin/simulate")({
@@ -222,7 +223,7 @@ function SimulateTourEvent() {
 						Simulate tour event
 					</h1>
 					<p className="mt-1 max-w-prose text-sm text-muted-foreground">
-						Writes the same <code className="text-xs">tour_event</code> row as
+						Writes the same <code className="text-xs">rfid_read_event</code> row as
 						POST <code className="text-xs">/event</code> — nothing extra in the
 						browser. The server fills <code className="text-xs">tour_id</code>{" "}
 						the same way as the welcome flow: for ambassadors, the tour whose{" "}
@@ -307,7 +308,7 @@ function SimulateTourEvent() {
 
 				<div className="min-w-0 space-y-3">
 					<div className="flex flex-wrap items-center justify-between gap-3">
-						<h2 className="text-sm font-medium">Recent tour events</h2>
+						<h2 className="text-sm font-medium">Recent RFID reads</h2>
 						<div className="flex flex-wrap gap-2">
 							<Button
 								type="button"
@@ -344,7 +345,7 @@ function SimulateTourEvent() {
 										<TableHead className="w-[1%] whitespace-nowrap text-[11px]">
 											Time (CST)
 										</TableHead>
-										<TableHead className="text-[11px]">Type</TableHead>
+										<TableHead className="text-[11px]">Source</TableHead>
 										<TableHead className="min-w-32 text-[11px]">EPC</TableHead>
 										<TableHead className="text-[11px]">Person</TableHead>
 										<TableHead className="text-[11px]">Tour</TableHead>
@@ -355,10 +356,10 @@ function SimulateTourEvent() {
 									{events.map((ev) => (
 										<TableRow key={String(ev.id)}>
 											<TableCell className="whitespace-nowrap text-[11px] text-muted-foreground">
-												{formatEventTs(ev.event_ts)}
+												{formatEventTs(ev.seen_at)}
 											</TableCell>
 											<TableCell className="whitespace-nowrap text-[11px]">
-												{ev.event_type}
+												{ev.source}
 											</TableCell>
 											<TableCell className="whitespace-nowrap font-mono text-[10px]">
 												{ev.epc ?? "—"}
@@ -383,10 +384,11 @@ function SimulateTourEvent() {
 				<AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
 					<AlertDialogContent className="w-[min(100vw-2rem,28rem)] rounded-none sm:max-w-md">
 						<AlertDialogHeader>
-							<AlertDialogTitle>Delete all tour events?</AlertDialogTitle>
+							<AlertDialogTitle>Delete all RFID reads?</AlertDialogTitle>
 							<AlertDialogDescription>
-								This clears the tour_event table (development / reset). This
-								cannot be undone.
+								This clears <code className="text-xs">rfid_read_event</code> and{" "}
+								<code className="text-xs">rfid_tag_live_state</code> (development /
+								reset). This cannot be undone.
 							</AlertDialogDescription>
 						</AlertDialogHeader>
 						<AlertDialogFooter>

@@ -1,6 +1,9 @@
 const crypto = require("crypto");
 
 /**
+ * @deprecated Legacy `tour_event` helpers — the app uses `rfid_read_event` and `lib/rfid-read-insert.js`.
+ * Kept for reference or one-off scripts that still target `tour_event`.
+ *
  * Builds a full tour_event payload matching POST /event (same columns as INSERT).
  * @param {string|null|undefined} epc
  * @param {Record<string, unknown>} [overrides]

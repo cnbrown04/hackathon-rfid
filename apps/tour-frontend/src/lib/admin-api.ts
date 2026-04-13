@@ -220,7 +220,7 @@ export async function deleteLidarItem(epc: string): Promise<void> {
 	if (!r.ok) throw new Error(await parseError(r));
 }
 
-/** Persists a fake `tour_event` (same as POST `/event`); WebSocket updates come only from NOTIFY → LISTEN on the server. */
+/** Persists a fake `rfid_read_event` (same as POST `/event`); WebSocket updates come only from NOTIFY → LISTEN on the server. */
 /** `tour_id` on the inserted row is resolved server-side (ambassador → nearest tour by start_time; visitor → people.tour_id). */
 export async function simulateTourEvent(body: {
 	person_id: number;
@@ -266,15 +266,14 @@ export async function showConclusionOnWelcomeScreens(
 
 export type TourEventListRow = {
 	id: number;
-	event_id: string;
-	event_type: string;
-	event_ts: string;
-	site_id: string | null;
 	reader_id: string | null;
 	antenna_id: number | null;
-	tour_id: string | null;
 	epc: string | null;
-	created_at: string;
+	seen_at: string;
+	rssi_dbm: number | null;
+	source: string;
+	ingest_ts: string;
+	tour_id: string | null;
 	person_id: number | null;
 	person_first_name: string | null;
 	person_last_name: string | null;
