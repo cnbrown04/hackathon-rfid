@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Insert fake tour_event rows (same shape as POST /event).
+ * Insert fake rfid_read_event rows (same shape as POST /event).
  *
  * Usage:
  *   node scripts/push-fake-tour-event.js --epc E2801160600002050668CA46
@@ -10,12 +10,10 @@
  * Env: DATABASE_URL (required for --person-id or --direct), HTTP_PORT (default 3002 for HTTP mode)
  */
 
-require("dotenv").config();
+const path = require("path");
+require("dotenv").config({ path: path.join(__dirname, "..", ".env") });
 const { Pool } = require("pg");
-const {
-  buildFakeTourEventBody,
-  insertFullTourEvent,
-} = require("../lib/tour-event-fake");
+const { insertRfidReadEvent } = require("../lib/rfid-read-insert");
 
 function parseArgs() {
   const argv = process.argv.slice(2);
@@ -24,7 +22,8 @@ function parseArgs() {
     count: 1,
     baseUrl: `http://localhost:${httpPort}`,
     direct: false,
-    reader_id: undefined,
+    reader_id: "welcome",
+    antenna_id: 1,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -34,6 +33,7 @@ function parseArgs() {
     else if (a === "--url" || a === "--base-url") out.baseUrl = argv[++i];
     else if (a === "--direct") out.direct = true;
     else if (a === "--reader-id") out.reader_id = argv[++i];
+    else if (a === "--antenna-id") out.antenna_id = Number(argv[++i]) || 1;
   }
   return out;
 }
@@ -64,8 +64,6 @@ async function resolveEpc(args) {
 async function main() {
   const args = parseArgs();
   const epc = await resolveEpc(args);
-  const overrides = {};
-  if (args.reader_id !== undefined) overrides.reader_id = args.reader_id;
 
   if (args.direct) {
     if (!process.env.DATABASE_URL) {
@@ -75,10 +73,16 @@ async function main() {
     const pool = new Pool({ connectionString: process.env.DATABASE_URL });
     try {
       for (let i = 0; i < args.count; i++) {
-        const body = buildFakeTourEventBody(epc, overrides);
-        const result = await insertFullTourEvent(pool, body);
+        const result = await insertRfidReadEvent(pool, {
+          reader_id: args.reader_id,
+          antenna_id: args.antenna_id,
+          epc,
+          seen_at: new Date().toISOString(),
+          rssi_dbm: -48,
+          source: "script",
+        });
         const row = result.rows[0];
-        console.log("Inserted", row.event_id, row.epc);
+        console.log("Inserted", row.id, row.epc);
       }
     } finally {
       await pool.end();
@@ -88,7 +92,14 @@ async function main() {
 
   const base = args.baseUrl.replace(/\/$/, "");
   for (let i = 0; i < args.count; i++) {
-    const body = buildFakeTourEventBody(epc, overrides);
+    const body = {
+      reader_id: args.reader_id,
+      antenna_id: args.antenna_id,
+      epc,
+      seen_at: new Date().toISOString(),
+      rssi_dbm: -48,
+      source: "script",
+    };
     const r = await fetch(`${base}/event`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -100,7 +111,7 @@ async function main() {
       process.exit(1);
     }
     const row = JSON.parse(text);
-    console.log("Inserted", row.event_id, row.epc);
+    console.log("Inserted", row.id, row.epc);
   }
 }
 

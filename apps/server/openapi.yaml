@@ -317,8 +317,8 @@ paths:
   /api/admin/tour-events:
     get:
       tags: [Admin]
-      summary: Recent tour events (with person join)
-      description: Last 40 rows, `event_ts` descending; joins `people` on matching `epc`.
+      summary: Recent RFID reads (with person join)
+      description: Last 40 rows, `seen_at` descending; joins `people` on matching `epc`.
       security: [AdminBearer: []]
       operationId: listAdminTourEvents
       responses:
@@ -335,8 +335,8 @@ paths:
           $ref: "#/components/responses/JsonError"
     delete:
       tags: [Admin]
-      summary: Truncate all tour events
-      description: Dev/reset — `TRUNCATE tour_event RESTART IDENTITY`.
+      summary: Truncate RFID read tables
+      description: Dev/reset — `TRUNCATE rfid_read_event, rfid_tag_live_state RESTART IDENTITY`.
       security: [AdminBearer: []]
       operationId: deleteAllTourEvents
       responses:
@@ -476,11 +476,10 @@ paths:
   /api/admin/simulate-tour-event:
     post:
       tags: [Admin]
-      summary: Insert a synthetic tour_event (admin test)
+      summary: Insert a synthetic rfid_read_event (admin test)
       description: |
-        Builds a full `tour_event` row like `POST /event`. **`tour_id` is set server-side**:
-        ambassadors → nearest tour by `start_time` to now; others → `people.tour_id`.
-        WebSocket updates come only from Postgres NOTIFY → LISTEN (same as real inserts).
+        Inserts into `rfid_read_event` with `source=admin_simulate` (same as `POST /event` shape).
+        Welcome roster is broadcast from the HTTP handler; NOTIFY does not duplicate welcome for this source.
       security: [AdminBearer: []]
       operationId: simulateTourEvent
       requestBody:
@@ -497,15 +496,14 @@ paths:
                   type: string
                 reader_id:
                   type: string
-                event_type:
-                  type: string
-                site_id:
-                  type: string
                 antenna_id:
                   type: integer
+                tour_id:
+                  type: string
+                  description: Optional; validated for ambassadors when set
       responses:
         "201":
-          description: Inserted row (full tour_event)
+          description: Inserted row (full rfid_read_event)
           content:
             application/json:
               schema:
@@ -522,10 +520,10 @@ paths:
   /event:
     post:
       tags: [Events]
-      summary: Insert RFID tour_event (production shape)
+      summary: Insert RFID read (production)
       description: |
-        Inserts a full `tour_event` row. Requires `event_id`, `event_type`, `event_ts`.
-        Triggers DB NOTIFY for WebSocket clients.
+        Inserts into `rfid_read_event`. Requires `reader_id`, `antenna_id`, `epc`.
+        Triggers NOTIFY `new_rfid_read_event` for WebSocket clients.
       operationId: postEvent
       requestBody:
         required: true
@@ -547,8 +545,8 @@ paths:
   /events:
     get:
       tags: [Events]
-      summary: List recent tour events (public)
-      description: Last 50 rows by `event_ts` descending.
+      summary: List recent RFID reads (public)
+      description: Last 50 rows by `seen_at` descending.
       operationId: listEvents
       responses:
         "200":
@@ -758,150 +756,58 @@ components:
 
     TourEventRow:
       type: object
-      description: Row from tour_event (snake_case columns as returned by Postgres)
+      description: Row from rfid_read_event (snake_case columns as returned by Postgres)
       properties:
         id:
           type: integer
           format: int64
-        event_id:
-          type: string
-          format: uuid
-        event_type:
-          type: string
-        event_ts:
-          type: string
-          format: date-time
-        site_id:
-          type: string
-          nullable: true
         reader_id:
           type: string
-          nullable: true
         antenna_id:
           type: integer
-          nullable: true
-        tour_id:
-          type: string
-          nullable: true
         epc:
           type: string
-          nullable: true
-        window_start_epoch_sec:
-          type: integer
-          format: int64
-          nullable: true
-        window_end_epoch_sec:
-          type: integer
-          format: int64
-          nullable: true
-        read_count_60s:
-          type: integer
-          format: int64
-          nullable: true
-        unique_tag_count_60s:
-          type: integer
-          format: int64
-          nullable: true
-        avg_rssi_60s:
-          type: number
-          format: double
-          nullable: true
-        baseline_read_count:
-          type: number
-          format: double
-          nullable: true
-        baseline_avg_rssi:
-          type: number
-          format: double
-          nullable: true
-        count_drop_pct:
-          type: number
-          format: double
-          nullable: true
-        rssi_drop_db:
-          type: number
-          format: double
-          nullable: true
-        threshold_count_drop_pct:
-          type: number
-          format: double
-          nullable: true
-        threshold_rssi_drop_db:
-          type: number
-          format: double
-          nullable: true
-        consecutive_checks_required:
-          type: integer
-          nullable: true
-        created_at:
+        seen_at:
           type: string
           format: date-time
+        rssi_dbm:
+          type: integer
+          nullable: true
+        ingest_ts:
+          type: string
+          format: date-time
+        source:
+          type: string
 
     TourEventInsert:
       type: object
-      description: Full insert payload accepted by insertFullTourEvent; server only validates event_id, event_type, event_ts.
-      required: [event_id, event_type, event_ts]
+      description: Insert into rfid_read_event; server requires reader_id, antenna_id, epc.
+      required: [reader_id, antenna_id, epc]
       properties:
-        event_id:
-          type: string
-          format: uuid
-        event_type:
-          type: string
-        event_ts:
-          type: string
-          format: date-time
-        site_id:
-          type: string
         reader_id:
           type: string
         antenna_id:
           type: integer
-        tour_id:
-          type: string
-          nullable: true
         epc:
           type: string
-        window_start_epoch_sec:
+        seen_at:
+          type: string
+          format: date-time
+        rssi_dbm:
           type: integer
-          format: int64
-        window_end_epoch_sec:
-          type: integer
-          format: int64
-        read_count_60s:
-          type: integer
-          format: int64
-        unique_tag_count_60s:
-          type: integer
-          format: int64
-        avg_rssi_60s:
-          type: number
-          format: double
-        baseline_read_count:
-          type: number
-          format: double
-        baseline_avg_rssi:
-          type: number
-          format: double
-        count_drop_pct:
-          type: number
-          format: double
-        rssi_drop_db:
-          type: number
-          format: double
-        threshold_count_drop_pct:
-          type: number
-          format: double
-        threshold_rssi_drop_db:
-          type: number
-          format: double
-        consecutive_checks_required:
-          type: integer
+          nullable: true
+        source:
+          type: string
 
     TourEventAdminRow:
       allOf:
         - $ref: "#/components/schemas/TourEventRow"
         - type: object
           properties:
+            tour_id:
+              type: string
+              format: uuid
+              nullable: true
             person_id:
               type: integer
               nullable: true

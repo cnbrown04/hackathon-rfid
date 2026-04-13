@@ -1,12 +1,12 @@
-require("dotenv").config();
+const path = require("path");
+require("dotenv").config({ path: path.join(__dirname, ".env") });
 const crypto = require("crypto");
 const fs = require("fs");
 const http = require("http");
-const path = require("path");
 const { Pool, Client } = require("pg");
 const { WebSocketServer } = require("ws");
 const { parse: parseYaml } = require("yaml");
-const { buildFakeTourEventBody, insertFullTourEvent } = require("./lib/tour-event-fake");
+const { insertRfidReadEvent, ADMIN_SIMULATE_SOURCE } = require("./lib/rfid-read-insert");
 
 /** Parsed `openapi.yaml`, loaded once at first request to GET /openapi.json */
 let openApiSpecCache = null;
@@ -92,6 +92,7 @@ function stationLabel(readerId) {
     welcome: "Welcome",
     "reader-2": "Welcome (legacy)",
     lidar: "LiDAR station",
+    lidar_reader: "LiDAR station",
     "reader-3": "LiDAR (legacy)",
     "reader-1": "Station 1",
   };
@@ -140,17 +141,17 @@ async function tourStationSummaryPayload(pool, tourId) {
   }
   const aggResult = await pool.query(
     `SELECT
-       te.reader_id,
-       MIN(te.event_ts) AS first_ts,
-       MAX(te.event_ts) AS last_ts,
+       r.reader_id,
+       MIN(r.seen_at) AS first_ts,
+       MAX(r.seen_at) AS last_ts,
        COUNT(*)::int AS event_count
-     FROM tour_event te
-     WHERE te.epc = ANY($1::text[])
-       AND te.reader_id IS NOT NULL
-       AND TRIM(te.reader_id) <> ''
-       AND ($2::timestamptz IS NULL OR te.event_ts >= $2::timestamptz)
-     GROUP BY te.reader_id
-     ORDER BY MIN(te.event_ts) ASC`,
+     FROM rfid_read_event r
+     WHERE r.epc = ANY($1::text[])
+       AND r.reader_id IS NOT NULL
+       AND TRIM(r.reader_id) <> ''
+       AND ($2::timestamptz IS NULL OR r.seen_at >= $2::timestamptz)
+     GROUP BY r.reader_id
+     ORDER BY MIN(r.seen_at) ASC`,
     [epcs, tour.start_time ?? null]
   );
   const stations = aggResult.rows.map((row) => {
@@ -253,24 +254,21 @@ function welcomePayloadFromRow(person) {
   };
 }
 
-/** `tour_event.tour_id` is TEXT (may hold demo slugs); `tours.id` is uuid — only cast when valid. */
+/** UUID check for tour ids from query params / admin bodies. */
 function isUuidString(s) {
   if (s == null || typeof s !== "string") return false;
   const t = s.trim();
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(t);
 }
 
-/** Inserts from POST /api/admin/simulate-tour-event — NOTIFY must not run welcome from broker row; handler broadcasts instead. */
-const ADMIN_SIMULATE_EVENT_TYPE = "admin_simulate_tag_read";
-
 /** Welcome kiosk: canonical id `welcome`, legacy aggregators still send `reader-2`. */
 function isWelcomeReaderId(readerId) {
   return readerId === "welcome" || readerId === "reader-2";
 }
 
-/** LiDAR shelf: canonical `lidar`, legacy `reader-3`. */
+/** LiDAR shelf: canonical `lidar`, legacy `reader-3`, Zig host default alias `lidar_reader`. */
 function isLidarReaderId(readerId) {
-  return readerId === "lidar" || readerId === "reader-3";
+  return readerId === "lidar" || readerId === "reader-3" || readerId === "lidar_reader";
 }
 
 /** WebSocket payloads always use `welcome` so the browser can filter on one id. */
@@ -292,7 +290,7 @@ async function nearestTourForAmbassador(ambassadorId) {
 }
 
 /**
- * tour_id stored on tour_event: ambassador → optional explicit tour_id (iPad / admin), else nearest by start_time; visitor → people.tour_id.
+ * Tour id for ambassador simulate: optional explicit tour_id (iPad / admin), else nearest by start_time; visitor → people.tour_id.
  * @param {{ id: number, role: string, tour_id?: string | null }} person
  * @param {string | null | undefined} optionalTourId — must already be validated for ambassadors when provided
  */
@@ -308,17 +306,22 @@ async function resolveTourIdForSimulatedEvent(person, optionalTourId) {
 }
 
 /**
- * Runs only from the Postgres NOTIFY listener (INSERT → trigger → pg_notify).
- * HTTP routes that insert tour_event (POST /event, admin simulate, etc.) must not call this — the DB path is the single source of truth for WebSocket side effects.
+ * Runs only from the Postgres NOTIFY listener (`new_rfid_read_event`).
+ * HTTP routes that insert `rfid_read_event` must not duplicate welcome side effects — admin simulate broadcasts welcome in the HTTP handler.
  */
-async function dispatchTourEventFromNotify(row) {
-  broadcast({ type: "tour_event", data: row });
+async function dispatchRfidReadFromNotify(row) {
+  const normalized = {
+    ...row,
+    event_ts: row.seen_at,
+    event_type: "tag_read",
+  };
+  broadcast({ type: "tour_event", data: normalized });
+
+  const skipWelcomeInNotify = row.source === ADMIN_SIMULATE_SOURCE;
 
   if (isWelcomeReaderId(row.reader_id) && row.epc) {
     try {
-      // Never trust tour_event.tour_id from the broker (TEXT / demo slugs). Real reads use NOTIFY only.
-      // Admin simulate inserts use ADMIN_SIMULATE_EVENT_TYPE — welcome is broadcast in the HTTP handler instead.
-      if (row.event_type !== ADMIN_SIMULATE_EVENT_TYPE) {
+      if (!skipWelcomeInNotify) {
         await broadcastWelcomeForEpc(row.epc, {
           reader_id: canonicalWelcomeReaderId(row.reader_id),
         });
@@ -633,21 +636,19 @@ async function broadcastWelcomeForEpc(epc, options = {}) {
 // --- Boot sequence ---
 async function start() {
   // Optional dev/demo reset — never default in production (e.g. Heroku).
-  if (process.env.TRUNCATE_TOUR_EVENTS_ON_BOOT === "true") {
-    await pool.query("TRUNCATE tour_event RESTART IDENTITY");
-    console.log("Truncated tour_event table");
+  if (process.env.TRUNCATE_RFID_READ_EVENTS_ON_BOOT === "true") {
+    await pool.query("TRUNCATE rfid_read_event, rfid_tag_live_state RESTART IDENTITY");
+    console.log("Truncated rfid_read_event and rfid_tag_live_state");
   }
 
   // 2. Connect the LISTEN client
   await listener.connect();
-  await listener.query("LISTEN new_event");
+  await listener.query("LISTEN new_rfid_read_event");
   await listener.query("LISTEN new_localize");
   await listener.query("LISTEN new_localization_event");
-  await listener.query("LISTEN new_localize");
-  console.log("Listening for Postgres NOTIFY on channel: new_event");
+  console.log("Listening for Postgres NOTIFY on channel: new_rfid_read_event");
   console.log("Listening for Postgres NOTIFY on channel: new_localize");
   console.log("Listening for Postgres NOTIFY on channel: new_localization_event");
-  console.log("Listening for Postgres NOTIFY on channel: new_localize");
 
   setInterval(() => {
     pruneLocalizationState(Date.now());
@@ -677,17 +678,16 @@ async function start() {
       return;
     }
 
-    if (msg.channel !== "new_event") {
+    if (msg.channel !== "new_rfid_read_event") {
       return;
     }
 
-    const event = payload;
-    console.log("Event received:", event);
+    console.log("RFID read received:", payload);
 
     try {
-      await dispatchTourEventFromNotify(event);
+      await dispatchRfidReadFromNotify(payload);
     } catch (err) {
-      console.error("Tour event dispatch error:", err);
+      console.error("RFID read dispatch error:", err);
     }
   });
 
@@ -1246,14 +1246,14 @@ const httpServer = http.createServer(async (req, res) => {
       }
     }
 
-    // GET /api/admin/tour-events — recent tour_event rows (for admin UI)
-    // DELETE /api/admin/tour-events — truncate table (dev / reset)
+    // GET /api/admin/tour-events — recent rfid_read_event rows (for admin UI)
+    // DELETE /api/admin/tour-events — truncate RFID tables (dev / reset)
     if (segments[0] === "tour-events" && segments.length === 1) {
       if (req.method === "GET") {
         pool
           .query(
-            `SELECT te.id, te.event_id, te.event_type, te.event_ts, te.site_id, te.reader_id, te.antenna_id,
-                    te.tour_id, te.epc, te.created_at,
+            `SELECT r.id, r.reader_id, r.antenna_id, r.epc, r.seen_at, r.rssi_dbm, r.source, r.ingest_ts,
+                    p.tour_id::text AS tour_id,
                     p.id AS person_id,
                     p.first_name AS person_first_name,
                     p.last_name AS person_last_name,
@@ -1262,9 +1262,9 @@ const httpServer = http.createServer(async (req, res) => {
                     p.title AS person_title,
                     p.photo_url AS person_photo_url,
                     p.role::text AS person_role
-             FROM tour_event te
-             LEFT JOIN people p ON p.epc = te.epc
-             ORDER BY te.event_ts DESC
+             FROM rfid_read_event r
+             LEFT JOIN people p ON p.epc = r.epc
+             ORDER BY r.seen_at DESC
              LIMIT 40`
           )
           .then((result) => json(res, 200, result.rows))
@@ -1277,7 +1277,7 @@ const httpServer = http.createServer(async (req, res) => {
 
       if (req.method === "DELETE") {
         pool
-          .query("TRUNCATE tour_event RESTART IDENTITY")
+          .query("TRUNCATE rfid_read_event, rfid_tag_live_state RESTART IDENTITY")
           .then(() => json(res, 200, { ok: true, deleted: "all" }))
           .catch((err) => {
             console.error(err);
@@ -1375,17 +1375,23 @@ const httpServer = http.createServer(async (req, res) => {
             personRow,
             optionalTourId
           );
-          const fake = buildFakeTourEventBody(epc, {
-            reader_id: body.reader_id,
-            event_type: ADMIN_SIMULATE_EVENT_TYPE,
-            tour_id: resolvedTourId,
-            site_id: body.site_id,
-            antenna_id: body.antenna_id,
+          const readerForSim =
+            body.reader_id != null && String(body.reader_id).trim() !== ""
+              ? String(body.reader_id).trim()
+              : "welcome";
+          const antennaNum = Number(body.antenna_id);
+          const antennaId = Number.isFinite(antennaNum) ? Math.trunc(antennaNum) : 1;
+
+          const result = await insertRfidReadEvent(pool, {
+            reader_id: readerForSim,
+            antenna_id: antennaId,
+            epc,
+            seen_at: new Date().toISOString(),
+            rssi_dbm: null,
+            source: ADMIN_SIMULATE_SOURCE,
           });
-          const result = await insertFullTourEvent(pool, fake);
 
           // Welcome roster: only from server-side person/tour resolution — never from broker row fields.
-          const readerForSim = fake.reader_id ?? "welcome";
           if (isWelcomeReaderId(readerForSim)) {
             try {
               await broadcastWelcomeForEpc(epc, {
@@ -1415,22 +1421,39 @@ const httpServer = http.createServer(async (req, res) => {
     return;
   }
 
-  // POST /event — insert a tour_event row (triggers NOTIFY automatically)
+  // POST /event — insert `rfid_read_event` (triggers NOTIFY `new_rfid_read_event`)
   if (req.method === "POST" && pathname === "/event") {
     let body = "";
     req.on("data", (chunk) => (body += chunk));
     req.on("end", async () => {
       try {
         const e = JSON.parse(body);
-        if (!e.event_id || !e.event_type || !e.event_ts) {
+        if (!e.reader_id || e.antenna_id == null || !e.epc) {
           res.writeHead(
             400,
             withCors({ "Content-Type": "application/json" })
           );
-          res.end(JSON.stringify({ error: "event_id, event_type, and event_ts are required" }));
+          res.end(
+            JSON.stringify({
+              error: "reader_id, antenna_id, and epc are required",
+            })
+          );
           return;
         }
-        const result = await insertFullTourEvent(pool, e);
+        const antennaId = Number(e.antenna_id);
+        if (!Number.isFinite(antennaId)) {
+          res.writeHead(400, withCors({ "Content-Type": "application/json" }));
+          res.end(JSON.stringify({ error: "antenna_id must be a number" }));
+          return;
+        }
+        const result = await insertRfidReadEvent(pool, {
+          reader_id: String(e.reader_id),
+          antenna_id: Math.trunc(antennaId),
+          epc: String(e.epc),
+          seen_at: e.seen_at != null ? String(e.seen_at) : null,
+          rssi_dbm: e.rssi_dbm != null ? Number(e.rssi_dbm) : null,
+          source: e.source != null ? String(e.source) : "reader",
+        });
         res.writeHead(201, withCors({ "Content-Type": "application/json" }));
         res.end(JSON.stringify(result.rows[0]));
       } catch (err) {
@@ -1442,11 +1465,11 @@ const httpServer = http.createServer(async (req, res) => {
     return;
   }
 
-  // GET /events — fetch recent tour events
+  // GET /events — fetch recent RFID reads
   if (req.method === "GET" && pathname === "/events") {
     try {
       const result = await pool.query(
-        "SELECT * FROM tour_event ORDER BY event_ts DESC LIMIT 50"
+        "SELECT * FROM rfid_read_event ORDER BY seen_at DESC LIMIT 50"
       );
       res.writeHead(200, withCors({ "Content-Type": "application/json" }));
       res.end(JSON.stringify(result.rows));
