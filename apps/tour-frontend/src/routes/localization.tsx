@@ -24,8 +24,6 @@ const ANCHOR_POS: Record<number, { x: number; y: number }> = {
 	3: { x: GRID_FT, y: 0 },
 };
 
-/** Estimate tag position via RSSI-weighted centroid of visible antennas.
- *  Stronger signal (less negative RSSI) → higher weight → position pulled closer. */
 function estimatePosition(
 	antennas: Map<number, { rssi: number | null; readCount: number | null; ts: string }>,
 ): { x: number; y: number } | null {
@@ -35,10 +33,8 @@ function estimatePosition(
 	for (const [antId, read] of antennas) {
 		const pos = ANCHOR_POS[antId];
 		if (!pos) continue;
-		// Use RSSI-derived linear power as weight; fall back to read count, then 1
 		let weight: number;
 		if (read.rssi != null && Number.isFinite(read.rssi)) {
-			// Convert dBm to linear power (higher = stronger = closer)
 			weight = 10 ** (read.rssi / 10);
 		} else if (read.readCount != null && read.readCount > 0) {
 			weight = read.readCount;
@@ -52,7 +48,6 @@ function estimatePosition(
 	if (wSum === 0) return null;
 	const x = wx / wSum;
 	const y = wy / wSum;
-	// Only render if reasonably within the grid (allow small overflow)
 	if (x < -1 || x > GRID_FT + 1 || y < -1 || y > GRID_FT + 1) return null;
 	return { x: Math.max(0, Math.min(GRID_FT, x)), y: Math.max(0, Math.min(GRID_FT, y)) };
 }
@@ -65,10 +60,8 @@ function fmt(v: number | null | undefined): string {
 	return v == null || Number.isNaN(v) ? "--" : v.toFixed(1);
 }
 
-/** Per-tag state aggregated from antenna reads */
 type TagState = {
 	epc: string;
-	/** Latest read per antenna id */
 	antennas: Map<number, { rssi: number | null; readCount: number | null; ts: string }>;
 	lastSeen: string;
 	totalReads: number;
@@ -266,7 +259,7 @@ function LocalizationPage() {
 								>
 									<div
 										className={cn(
-											"size-14 rounded-full shadow-lg transition-transform duration-200",
+											"size-16 rounded-full shadow-lg transition-transform duration-200",
 											isSelected && "scale-[1.4] ring-2 ring-white/80",
 										)}
 										style={{ backgroundColor: color, boxShadow: `0 0 14px 4px ${color}44` }}

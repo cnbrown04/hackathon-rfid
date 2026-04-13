@@ -15,13 +15,8 @@ export const Route = createFileRoute("/lidar")({
 	component: LidarPage,
 });
 
-const PRODUCT_NAMES: Record<string, string> = {
-	armor_all: "Armor All Protectant Wipes",
-	hot_shine: "Meguiar's Hot Shine Tire Spray",
-	leather_solution: "Sof Sole Leather Solution",
-	engraving_kit: "Dremel Carving/Engraving Accessory Kit",
-	ozark_trail: "Ozark Trail 24oz Loop Water Bottle",
-};
+// Product display names — update these after inspecting mesh names logged in the console
+const PRODUCT_NAMES: Record<string, string> = {};
 
 type CamPose = {
 	position: [number, number, number];
@@ -29,64 +24,82 @@ type CamPose = {
 	center: [number, number, number];
 };
 
+// Default wide-view camera — raised + tilted down to show depth between items
 const DEFAULT_CAMERA: CamPose = {
-	position: [2.55, -0.19, -0.84],
-	target: [-2.04, -0.77, -0.81],
-	center: [-2.04, -0.77, -0.81],
+	position: [3, 0.8, 0],
+	target: [0, -0.3, 0],
+	center: [0, -0.3, 0],
 };
 
 const CAMERA_DISTANCE = 0.8;
 
-// Manual center overrides for meshes where bounding box calculation is off
+// Manual center overrides — only use if a mesh bbox center is genuinely wrong
 const CENTER_OVERRIDES: Record<string, [number, number, number]> = {
-	hot_shine: [0.29, 0.03, -0.44],
-	armor_all: [0.48, -1.18, -0.43],
-	ozark_trail: [0.34, 0.04, -1.32],
-	// engraving_kit bbox has stray verts spanning two shelves — pin to actual product location
-	engraving_kit: [0.41, -0.45, -1.15],
+	irish_spring_1: [0.35, -0.05, 0.19],
+	irish_spring_2: [0.27, -0.05, 0.13],
+	armor_3: [0.29, 0.07, -0.11],
+	mesh_0006: [0.40, -0.01, -0.07],
+	mesh_0007: [0.35, 0.03, -0.09],
+	mesh_0003: [0.38, -0.075, -0.44],
+	mesh_0004: [0.38, -0.05, -0.38],
+	mesh_0005: [0.38, -0.025, -0.32],
+	mesh_0009: [0.36, -0.43, -0.41],
 };
 
-/** Compute camera poses from mesh bounding boxes */
+/** Strip Blender-style duplicate suffixes like .001, .002 */
+function baseMeshName(name: string): string {
+	return name.replace(/\.\d{3,}$/, "");
+}
+
+/** Compute camera poses from mesh bounding boxes — one dot per mesh */
 function buildCamerasFromScene(
 	scene: THREE.Object3D,
 ): Record<string, CamPose> {
 	const cameras: Record<string, CamPose> = {};
+	const angleOffset = CAMERA_DISTANCE * Math.tan(10 * (Math.PI / 180));
+	const screenOffset = 0.2;
+	const heightOffset = 0.25;
+
+	// First pass: collect all mesh names so we can detect Blender _1 duplicates
+	const allNames = new Set<string>();
+	scene.traverse((child) => {
+		if (child instanceof THREE.Mesh) allNames.add(child.name.toLowerCase());
+	});
+
 	scene.traverse((child) => {
 		if (child instanceof THREE.Mesh) {
 			const name = child.name.toLowerCase();
-			if (name === "full_mesh") return;
+			if (name === "full_mesh" || name === "mesh_0_1" || name === "mesh_0_2") return;
+
+			// Skip Blender duplicate: if "foo_1" exists and bare "foo" also exists, skip "foo_1"
+			const dupMatch = name.match(/^(.+)_1$/);
+			if (dupMatch && allNames.has(dupMatch[1])) return;
+
 			child.updateWorldMatrix(true, false);
 			child.geometry.computeBoundingBox();
 			const box = child.geometry.boundingBox;
 			if (!box) return;
-			// Get center in world space using the mesh's world matrix
+
 			const center = new THREE.Vector3();
 			box.getCenter(center);
 			center.applyMatrix4(child.matrixWorld);
 
-			const min = box.min.clone().applyMatrix4(child.matrixWorld);
-			const max = box.max.clone().applyMatrix4(child.matrixWorld);
-			console.log(
-				`[lidar] "${name}" bbox: min [${min.x.toFixed(2)}, ${min.y.toFixed(2)}, ${min.z.toFixed(2)}] max [${max.x.toFixed(2)}, ${max.y.toFixed(2)}, ${max.z.toFixed(2)}] center [${center.x.toFixed(2)}, ${center.y.toFixed(2)}, ${center.z.toFixed(2)}]`,
-			);
-
-			// Apply manual override if available
 			if (CENTER_OVERRIDES[name]) {
 				const [ox, oy, oz] = CENTER_OVERRIDES[name];
 				center.set(ox, oy, oz);
-				console.log(`[lidar] "${name}" using manual override: [${ox}, ${oy}, ${oz}]`);
 			}
 
-			// Offset camera angle and lookAt so product sits in the left ~40% of screen
-			const angleOffset = CAMERA_DISTANCE * Math.tan(10 * (Math.PI / 180));
-			const screenOffset = 0.2;
+			console.log(
+				`[lidar] "${name}" center [${center.x.toFixed(2)}, ${center.y.toFixed(2)}, ${center.z.toFixed(2)}]`,
+			);
+
 			cameras[name] = {
 				position: [
 					center.x + CAMERA_DISTANCE,
-					center.y,
+					center.y + heightOffset,
 					center.z + angleOffset,
 				],
-				target: [center.x, center.y, center.z - screenOffset],
+				target: [center.x, center.y - 0.05, center.z - screenOffset],
 				center: [center.x, center.y, center.z],
 			};
 		}
@@ -123,7 +136,7 @@ function ShelfModel({
 	activeProduct: string | null;
 	onCamerasReady: (cameras: Record<string, CamPose>) => void;
 }) {
-	const { scene } = useGLTF("/lidar-mesh.glb");
+	const { scene } = useGLTF("/lidar.glb");
 	const camerasBuilt = useRef(false);
 
 	useEffect(() => {
@@ -140,7 +153,7 @@ function ShelfModel({
 		activeMeshes.current = [];
 		scene.traverse((child) => {
 			if (child instanceof THREE.Mesh) {
-				const name = child.name.toLowerCase();
+				const name = baseMeshName(child.name.toLowerCase());
 				const isActive = activeProduct && name === activeProduct;
 
 				if (!child.userData._originalMaterial) {
