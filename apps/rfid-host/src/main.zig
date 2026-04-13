@@ -31,16 +31,19 @@ const TagEvent = struct {
     seen_at_ms: i64,
 };
 
-/// At most one queue emission per distinct EPC per this many milliseconds (wall clock).
-const dedupe_window_ms: i64 = 1000;
-
+/// Per-EPC spacing before another emit to the queue (and thus Postgres). Default window 1000 ms via `RFID_DEDUPE_MS`.
 const TagDeduper = struct {
     alloc: std.mem.Allocator,
     mutex: std.Thread.Mutex = .{},
     last_emit_ms: std.StringHashMap(i64),
+    dedupe_window_ms: i64,
 
-    fn init(a: std.mem.Allocator) TagDeduper {
-        return .{ .alloc = a, .last_emit_ms = std.StringHashMap(i64).init(a) };
+    fn init(a: std.mem.Allocator, dedupe_window_ms: i64) TagDeduper {
+        return .{
+            .alloc = a,
+            .last_emit_ms = std.StringHashMap(i64).init(a),
+            .dedupe_window_ms = dedupe_window_ms,
+        };
     }
 
     fn deinit(self: *TagDeduper) void {
@@ -57,7 +60,7 @@ const TagDeduper = struct {
         defer self.mutex.unlock();
 
         if (self.last_emit_ms.getPtr(epc_hex)) |ptr| {
-            if (now_ms - ptr.* < dedupe_window_ms) return false;
+            if (now_ms - ptr.* < self.dedupe_window_ms) return false;
             ptr.* = now_ms;
             return true;
         }
@@ -253,6 +256,66 @@ fn loadOptionalEnvString(allocator: std.mem.Allocator, env_name: []const u8) !?[
     };
 }
 
+/// Same-EPC insert/emit spacing. Default 1000 ms via env default string; non-positive values fall back to 1000.
+fn parseDedupeWindowMs(allocator: std.mem.Allocator) !i64 {
+    const s = try env_loader.loadEnvKeyOrDefault(allocator, "RFID_DEDUPE_MS", "1000");
+    defer allocator.free(s);
+    const v = try std.fmt.parseInt(i64, std.mem.trim(u8, s, " \t\r\n"), 10);
+    if (v <= 0) return 1000;
+    if (v > 3_600_000) return 3_600_000;
+    return v;
+}
+
+fn parseOptionalTxPowerIndex(allocator: std.mem.Allocator) !?u16 {
+    const s = try env_loader.loadEnvKeyOrDefault(allocator, "RFID_TX_POWER_INDEX", "");
+    defer allocator.free(s);
+    const t = std.mem.trim(u8, s, " \t\r\n");
+    if (t.len == 0) return null;
+    return try std.fmt.parseInt(u16, t, 10);
+}
+
+const max_inventory_antennas = 8;
+
+fn parseAntennaIdList(allocator: std.mem.Allocator, buf: *[max_inventory_antennas]c.UINT16) !usize {
+    const s = try env_loader.loadEnvKeyOrDefault(allocator, "RFID_ANTENNA_IDS", "1");
+    defer allocator.free(s);
+    var count: usize = 0;
+    var iter = std.mem.splitScalar(u8, s, ',');
+    while (iter.next()) |part| {
+        const p = std.mem.trim(u8, part, " \t\r\n");
+        if (p.len == 0) continue;
+        if (count >= buf.len) return error.TooManyAntennas;
+        const id = try std.fmt.parseInt(u16, p, 10);
+        if (id == 0) return error.InvalidAntennaId;
+        buf[count] = id;
+        count += 1;
+    }
+    if (count == 0) {
+        buf[0] = 1;
+        return 1;
+    }
+    return count;
+}
+
+fn applyAntennaTransmitPower(reader_handle: c.RFID_HANDLE32, antenna_ids: []const c.UINT16, power: u16) void {
+    for (antenna_ids) |aid| {
+        var rx: c.UINT16 = undefined;
+        var tx: c.UINT16 = undefined;
+        var freq: c.UINT16 = undefined;
+        const gst = c.RFID_GetAntennaConfig(reader_handle, aid, &rx, &tx, &freq);
+        if (gst != c.RFID_API_SUCCESS) {
+            std.debug.print("RFID_GetAntennaConfig antenna {} failed: {}\n", .{ aid, gst });
+            continue;
+        }
+        const sst = c.RFID_SetAntennaConfig(reader_handle, aid, rx, power, freq);
+        if (sst != c.RFID_API_SUCCESS) {
+            std.debug.print("RFID_SetAntennaConfig antenna {} tx_power_index {} failed: {}\n", .{ aid, power, sst });
+            continue;
+        }
+        std.debug.print("Antenna {} transmit power index set to {} (was {}).\n", .{ aid, power, tx });
+    }
+}
+
 fn simulateReads(queue: *TagQueue, dedupe: *TagDeduper, seconds: u64) !void {
     // Many duplicate "reads" of the same EPC within each wall second; dedupe yields ~one line per second per tag.
     const bursts_per_second: u32 = 20;
@@ -320,9 +383,11 @@ pub fn main() !void {
         if (std.mem.eql(u8, flag, "secure")) secure_llrp = true;
     }
 
+    const dedupe_window_ms = try parseDedupeWindowMs(allocator);
+
     var queue = TagQueue.init(allocator, 4096);
     defer queue.deinit();
-    var dedupe = TagDeduper.init(allocator);
+    var dedupe = TagDeduper.init(allocator, dedupe_window_ms);
     defer dedupe.deinit();
 
     g_queue = &queue;
@@ -364,8 +429,8 @@ pub fn main() !void {
             return error.InvalidSimulatedDuration;
         }
         std.debug.print(
-            "No reader IP provided, running in simulated mode for {d} seconds (duplicate reads deduped to ~1/s per EPC).\n",
-            .{seconds},
+            "No reader IP provided, running in simulated mode for {d} seconds (same EPC deduped: at most one insert every {d} ms).\n",
+            .{ seconds, dedupe_window_ms },
         );
         try simulateReads(&queue, &dedupe, seconds);
         queue.stop();
@@ -471,10 +536,17 @@ pub fn main() !void {
         "RFID_RegisterEventNotificationCallback",
     );
 
-    var antenna_ids = [_]c.UINT16{1};
+    var antenna_buf: [max_inventory_antennas]c.UINT16 = undefined;
+    const antenna_count = try parseAntennaIdList(allocator, &antenna_buf);
+    const antenna_ids = antenna_buf[0..antenna_count];
+
+    if (try parseOptionalTxPowerIndex(allocator)) |p| {
+        applyAntennaTransmitPower(reader_handle, antenna_ids, p);
+    }
+
     var antenna_info: c.ANTENNA_INFO = std.mem.zeroes(c.ANTENNA_INFO);
-    antenna_info.pAntennaList = @ptrCast(&antenna_ids);
-    antenna_info.length = 1;
+    antenna_info.pAntennaList = @ptrCast(antenna_ids.ptr);
+    antenna_info.length = @intCast(antenna_ids.len);
 
     try checkStatus(
         c.RFID_PerformInventory(reader_handle, null, &antenna_info, null, null),
@@ -490,22 +562,25 @@ pub fn main() !void {
 
     if (seconds == 0) {
         std.debug.print(
-            "Connected to reader {s}:{d}. Running until SIGINT/SIGTERM (duration 0 = forever).\n",
-            .{ reader_ip.?, reader_port },
+            "Connected to reader {s}:{d}. Antennas {any}. Same-EPC dedupe {d} ms. Running until SIGINT/SIGTERM (duration 0 = forever).\n",
+            .{ reader_ip.?, reader_port, antenna_ids, dedupe_window_ms },
         );
     } else {
         std.debug.print(
-            "Connected to reader {s}:{d}. Collecting for {d} s (or until signal).\n",
-            .{ reader_ip.?, reader_port, seconds },
+            "Connected to reader {s}:{d}. Antennas {any}. Same-EPC dedupe {d} ms. Collecting for {d} s (or until signal).\n",
+            .{ reader_ip.?, reader_port, antenna_ids, dedupe_window_ms, seconds },
         );
     }
 
+    // Short sleeps: Linux restarts the full `sleep()` after SIGINT (EINTR), so one long sleep
+    // would ignore `g_shutdown` until it finishes. Poll shutdown every few ms instead.
+    const shutdown_poll_ns: u64 = 20 * std.time.ns_per_ms;
     while (true) {
         if (g_shutdown.load(.monotonic)) break;
         if (limit_ns) |lim| {
             if (std.time.nanoTimestamp() - started_ns >= lim) break;
         }
-        std.Thread.sleep(200 * std.time.ns_per_ms);
+        std.Thread.sleep(shutdown_poll_ns);
     }
 
     std.debug.print("Stopping inventory...\n", .{});
