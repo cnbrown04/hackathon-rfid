@@ -317,8 +317,8 @@ paths:
   /api/admin/tour-events:
     get:
       tags: [Admin]
-      summary: Recent RFID reads (with person join)
-      description: Last 40 rows, `seen_at` descending; joins `people` on matching `epc`.
+      summary: Recent RFID reads (with person and LiDAR item joins)
+      description: Last 40 rows, `seen_at` descending; joins `people` and `lidar_items` on matching `epc`.
       security: [AdminBearer: []]
       operationId: listAdminTourEvents
       responses:
@@ -480,6 +480,8 @@ paths:
       description: |
         Inserts into `rfid_read_event` with `source=admin_simulate` (same as `POST /event` shape).
         Welcome roster is broadcast from the HTTP handler; NOTIFY does not duplicate welcome for this source.
+        For **lidar** / **lidar_reader** / **reader-3** readers, you may send **`epc` only** (no `person_id`) when that EPC exists in **`lidar_items`** — shelf simulation without a People row.
+        Other readers still resolve **`epc`** via **`people`** when `person_id` is omitted.
       security: [AdminBearer: []]
       operationId: simulateTourEvent
       requestBody:
@@ -488,7 +490,8 @@ paths:
           application/json:
             schema:
               type: object
-              description: One of person_id or epc required
+              description: |
+                Provide `person_id` and/or `epc`. For LiDAR readers, `epc` alone is enough if it exists in `lidar_items`.
               properties:
                 person_id:
                   type: integer
@@ -830,6 +833,13 @@ components:
               type: string
               nullable: true
             person_role:
+              type: string
+              nullable: true
+            lidar_item_desc:
+              type: string
+              nullable: true
+              description: From lidar_items when EPC matches (admin tour-events list)
+            lidar_item_upc:
               type: string
               nullable: true
 

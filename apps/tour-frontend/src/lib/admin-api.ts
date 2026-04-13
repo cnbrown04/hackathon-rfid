@@ -223,7 +223,10 @@ export async function deleteLidarItem(epc: string): Promise<void> {
 /** Persists a fake `rfid_read_event` (same as POST `/event`); WebSocket updates come only from NOTIFY → LISTEN on the server. */
 /** `tour_id` on the inserted row is resolved server-side (ambassador → nearest tour by start_time; visitor → people.tour_id). */
 export async function simulateTourEvent(body: {
-	person_id: number;
+	/** For welcome / reader-1; omit when simulating a shelf tag on a LiDAR reader with `epc` only. */
+	person_id?: number;
+	/** Required for LiDAR readers when `person_id` is omitted (must exist in `lidar_items`). */
+	epc?: string;
 	reader_id?: string;
 	event_type?: string;
 	site_id?: string;
@@ -282,6 +285,8 @@ export type TourEventListRow = {
 	person_title: string | null;
 	person_photo_url: string | null;
 	person_role: TourRole | null;
+	lidar_item_desc: string | null;
+	lidar_item_upc: string | null;
 };
 
 export async function fetchTourEvents(): Promise<TourEventListRow[]> {

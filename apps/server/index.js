@@ -1261,9 +1261,12 @@ const httpServer = http.createServer(async (req, res) => {
                     p.company AS person_company,
                     p.title AS person_title,
                     p.photo_url AS person_photo_url,
-                    p.role::text AS person_role
+                    p.role::text AS person_role,
+                    li.item_desc AS lidar_item_desc,
+                    li.upc AS lidar_item_upc
              FROM rfid_read_event r
              LEFT JOIN people p ON p.epc = r.epc
+             LEFT JOIN lidar_items li ON li.epc = r.epc
              ORDER BY r.seen_at DESC
              LIMIT 40`
           )
@@ -1317,6 +1320,10 @@ const httpServer = http.createServer(async (req, res) => {
     if (segments[0] === "simulate-tour-event" && req.method === "POST" && segments.length === 1) {
       readJsonBody(req)
         .then(async (body) => {
+          const readerForSim =
+            body.reader_id != null && String(body.reader_id).trim() !== ""
+              ? String(body.reader_id).trim()
+              : "welcome";
           const personId = body.person_id != null ? Number(body.person_id) : null;
           const epcDirect =
             typeof body.epc === "string" && body.epc.trim() !== "" ? body.epc.trim() : null;
@@ -1324,7 +1331,10 @@ const httpServer = http.createServer(async (req, res) => {
             json(res, 400, { error: "person_id or epc is required" });
             return;
           }
-          let personRow;
+          /** @type {{ id: number, epc: string, role: string, tour_id?: string | null } | null} */
+          let personRow = null;
+          let epc;
+
           if (personId) {
             const pr = await pool.query(
               "SELECT id, epc, role::text AS role, tour_id FROM people WHERE id = $1",
@@ -1335,6 +1345,14 @@ const httpServer = http.createServer(async (req, res) => {
               return;
             }
             personRow = pr.rows[0];
+            epc = personRow.epc;
+          } else if (isLidarReaderId(readerForSim)) {
+            const li = await pool.query("SELECT epc FROM lidar_items WHERE epc = $1", [epcDirect]);
+            if (li.rows.length === 0) {
+              json(res, 404, { error: "LiDAR item not found for this EPC" });
+              return;
+            }
+            epc = li.rows[0].epc;
           } else {
             const pr = await pool.query(
               "SELECT id, epc, role::text AS role, tour_id FROM people WHERE epc = $1",
@@ -1345,14 +1363,15 @@ const httpServer = http.createServer(async (req, res) => {
               return;
             }
             personRow = pr.rows[0];
+            epc = personRow.epc;
           }
-          const epc = personRow.epc;
+
           const optionalTourId =
             typeof body.tour_id === "string" && body.tour_id.trim() !== ""
               ? body.tour_id.trim()
               : null;
 
-          if (optionalTourId && personRow.role === "ambassador") {
+          if (optionalTourId && personRow && personRow.role === "ambassador") {
             if (!isUuidString(optionalTourId)) {
               json(res, 400, {
                 error: "tour_id must be a UUID (matches tours.id)",
@@ -1371,14 +1390,11 @@ const httpServer = http.createServer(async (req, res) => {
             }
           }
 
-          const resolvedTourId = await resolveTourIdForSimulatedEvent(
-            personRow,
-            optionalTourId
-          );
-          const readerForSim =
-            body.reader_id != null && String(body.reader_id).trim() !== ""
-              ? String(body.reader_id).trim()
-              : "welcome";
+          let resolvedTourId = null;
+          if (personRow) {
+            resolvedTourId = await resolveTourIdForSimulatedEvent(personRow, optionalTourId);
+          }
+
           const antennaNum = Number(body.antenna_id);
           const antennaId = Number.isFinite(antennaNum) ? Math.trunc(antennaNum) : 1;
 
@@ -1392,7 +1408,7 @@ const httpServer = http.createServer(async (req, res) => {
           });
 
           // Welcome roster: only from server-side person/tour resolution — never from broker row fields.
-          if (isWelcomeReaderId(readerForSim)) {
+          if (isWelcomeReaderId(readerForSim) && personRow) {
             try {
               await broadcastWelcomeForEpc(epc, {
                 tour_id:

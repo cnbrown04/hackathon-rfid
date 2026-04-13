@@ -33,8 +33,10 @@ import {
 } from "#/components/ui/tooltip";
 import {
 	deleteAllTourEvents,
+	fetchLidarItems,
 	fetchTourEvents,
 	loadAdminListData,
+	type LidarItemRow,
 	type PersonRow,
 	simulateTourEvent,
 	type TourEventListRow,
@@ -46,6 +48,19 @@ const READER_OPTIONS = [
 	{ value: "lidar", label: "lidar (shelf)" },
 	{ value: "lidar_reader", label: "lidar_reader (Zig host default)" },
 ] as const;
+
+function isLidarReaderId(readerId: string): boolean {
+	return (
+		readerId === "lidar" ||
+		readerId === "lidar_reader" ||
+		readerId === "reader-3"
+	);
+}
+
+function lidarItemLabel(it: LidarItemRow): string {
+	const desc = (it.item_desc ?? "").trim();
+	return desc.length > 0 ? `${desc} — ${it.epc}` : it.epc;
+}
 
 export const Route = createFileRoute("/admin/simulate")({
 	ssr: false,
@@ -91,7 +106,7 @@ function EventPersonCell({ ev }: { ev: TourEventListRow }) {
 			</TooltipTrigger>
 			<TooltipContent
 				side="top"
-				className="max-w-[280px] flex-col gap-3 rounded-none p-3 text-left"
+				className="max-w-sm flex-col gap-3 rounded-none p-3 text-left"
 			>
 				{hasPerson ? (
 					<div className="flex gap-3">
@@ -148,10 +163,54 @@ function EventPersonCell({ ev }: { ev: TourEventListRow }) {
 	);
 }
 
+function EventShelfItemCell({ ev }: { ev: TourEventListRow }) {
+	const title = (ev.lidar_item_desc ?? "").trim() || "Shelf item";
+	return (
+		<Tooltip>
+			<TooltipTrigger asChild>
+				<button
+					type="button"
+					className="block w-full min-w-0 text-left text-[11px] text-foreground underline-offset-2 hover:underline focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none"
+				>
+					<span className="block min-w-0 truncate">{title}</span>
+				</button>
+			</TooltipTrigger>
+			<TooltipContent
+				side="top"
+				className="max-w-sm flex-col gap-2 rounded-none p-3 text-left"
+			>
+				<p className="text-[11px] font-medium leading-snug">{title}</p>
+				{ev.lidar_item_upc ? (
+					<p className="text-[11px] text-background/85">UPC {ev.lidar_item_upc}</p>
+				) : null}
+				{ev.epc ? (
+					<p className="font-mono text-[10px] whitespace-nowrap text-background/70">
+						{ev.epc}
+					</p>
+				) : null}
+			</TooltipContent>
+		</Tooltip>
+	);
+}
+
+function EventAttributionCell({ ev }: { ev: TourEventListRow }) {
+	const name = personDisplayName(ev);
+	const hasPerson = ev.person_id != null && Boolean(name.trim());
+	if (hasPerson) return <EventPersonCell ev={ev} />;
+
+	const itemDesc = (ev.lidar_item_desc ?? "").trim();
+	if (itemDesc.length > 0) return <EventShelfItemCell ev={ev} />;
+
+	return <span className="text-[11px] text-muted-foreground">—</span>;
+}
+
 function SimulateTourEvent() {
 	const router = useRouter();
 	const { people, loadError } = Route.useRouteContext();
 	const [personId, setPersonId] = useState("");
+	const [lidarEpc, setLidarEpc] = useState("");
+	const [lidarItems, setLidarItems] = useState<LidarItemRow[]>([]);
+	const [lidarItemsError, setLidarItemsError] = useState<string | null>(null);
 	const [readerId, setReaderId] = useState<string>(READER_OPTIONS[0].value);
 	const [busy, setBusy] = useState(false);
 	const [lastResult, setLastResult] = useState<string | null>(null);
@@ -159,6 +218,42 @@ function SimulateTourEvent() {
 	const [events, setEvents] = useState<TourEventListRow[]>([]);
 	const [eventsError, setEventsError] = useState<string | null>(null);
 	const [deleteOpen, setDeleteOpen] = useState(false);
+
+	const lidarReader = isLidarReaderId(readerId);
+
+	useEffect(() => {
+		let cancelled = false;
+		(async () => {
+			try {
+				const rows = await fetchLidarItems();
+				if (!cancelled) {
+					setLidarItems(rows);
+					setLidarItemsError(null);
+				}
+			} catch (e) {
+				if (!cancelled) {
+					setLidarItems([]);
+					setLidarItemsError(
+						e instanceof Error ? e.message : "Failed to load LiDAR items",
+					);
+				}
+			}
+		})();
+		return () => {
+			cancelled = true;
+		};
+	}, []);
+
+	useEffect(() => {
+		if (!lidarReader) {
+			setLidarEpc("");
+			return;
+		}
+		setLidarEpc((prev) => {
+			if (prev && lidarItems.some((i) => i.epc === prev)) return prev;
+			return lidarItems[0]?.epc ?? "";
+		});
+	}, [lidarReader, lidarItems]);
 
 	const refreshEvents = useCallback(async () => {
 		setEventsError(null);
@@ -180,19 +275,31 @@ function SimulateTourEvent() {
 	);
 
 	async function onSend() {
-		const id = Number.parseInt(personId, 10);
-		if (!personId || Number.isNaN(id)) {
-			setError("Choose a person");
-			return;
+		if (lidarReader) {
+			if (!lidarEpc) {
+				setError("Choose a shelf item");
+				return;
+			}
+		} else {
+			const id = Number.parseInt(personId, 10);
+			if (!personId || Number.isNaN(id)) {
+				setError("Choose a person");
+				return;
+			}
 		}
 		setBusy(true);
 		setError(null);
 		setLastResult(null);
 		try {
-			const row = await simulateTourEvent({
-				person_id: id,
-				reader_id: readerId,
-			});
+			const row = lidarReader
+				? await simulateTourEvent({
+						epc: lidarEpc,
+						reader_id: readerId,
+					})
+				: await simulateTourEvent({
+						person_id: Number.parseInt(personId, 10),
+						reader_id: readerId,
+					});
 			const eid = row.event_id != null ? String(row.event_id) : "?";
 			setLastResult(`Inserted event ${eid}`);
 			await refreshEvents();
@@ -232,11 +339,12 @@ function SimulateTourEvent() {
 						Postgres listener turns the insert into WebSocket messages; keep{" "}
 						<code className="text-xs">/welcome</code> open to see it. Use{" "}
 						<code className="text-xs">welcome</code> for the welcome flow.{" "}
-						<code className="text-xs">lidar</code> triggers a{" "}
-						<code className="text-xs">lidar_items</code> lookup by the
-						person&apos;s EPC and broadcasts <code className="text-xs">lidar_scan</code>{" "}
-						(open <code className="text-xs">/lidar</code>; add rows under{" "}
-						<code className="text-xs">LiDAR items</code> in admin).
+						<code className="text-xs">lidar</code> /{" "}
+						<code className="text-xs">lidar_reader</code> use the shelf catalog: pick
+						an item below (EPC must exist under{" "}
+						<code className="text-xs">LiDAR items</code>). The server broadcasts{" "}
+						<code className="text-xs">lidar_scan</code> to{" "}
+						<code className="text-xs">/lidar</code>.
 					</p>
 				</div>
 
@@ -248,22 +356,44 @@ function SimulateTourEvent() {
 						<div className="flex min-w-0 flex-col gap-6">
 							<div className="flex min-w-0 flex-col gap-4 lg:flex-row lg:flex-wrap lg:items-end">
 								<div className="flex min-w-0 flex-1 flex-col gap-2">
-									<Label htmlFor="sim-person">Person</Label>
-									<NativeSelect
-										id="sim-person"
-										className="w-full min-w-0"
-										value={personId}
-										onChange={(e) => setPersonId(e.target.value)}
-									>
-										<NativeSelectOption value="">
-											Select a person…
-										</NativeSelectOption>
-										{sorted.map((p) => (
-											<NativeSelectOption key={p.id} value={String(p.id)}>
-												{personLabel(p)}
+									<Label htmlFor={lidarReader ? "sim-lidar-item" : "sim-person"}>
+										{lidarReader ? "Shelf item" : "Person"}
+									</Label>
+									{lidarReader ? (
+										<NativeSelect
+											id="sim-lidar-item"
+											className="w-full min-w-0"
+											value={lidarEpc}
+											onChange={(e) => setLidarEpc(e.target.value)}
+										>
+											{lidarItems.length === 0 ? (
+												<NativeSelectOption value="">
+													No LiDAR items yet…
+												</NativeSelectOption>
+											) : null}
+											{lidarItems.map((it) => (
+												<NativeSelectOption key={it.epc} value={it.epc}>
+													{lidarItemLabel(it)}
+												</NativeSelectOption>
+											))}
+										</NativeSelect>
+									) : (
+										<NativeSelect
+											id="sim-person"
+											className="w-full min-w-0"
+											value={personId}
+											onChange={(e) => setPersonId(e.target.value)}
+										>
+											<NativeSelectOption value="">
+												Select a person…
 											</NativeSelectOption>
-										))}
-									</NativeSelect>
+											{sorted.map((p) => (
+												<NativeSelectOption key={p.id} value={String(p.id)}>
+													{personLabel(p)}
+												</NativeSelectOption>
+											))}
+										</NativeSelect>
+									)}
 								</div>
 								<div className="flex min-w-0 flex-col gap-2 lg:w-56">
 									<Label htmlFor="sim-reader">Reader</Label>
@@ -284,14 +414,27 @@ function SimulateTourEvent() {
 									<Button
 										type="button"
 										className="w-full lg:w-auto"
-										disabled={busy || people.length === 0}
+										disabled={
+											busy ||
+											(lidarReader
+												? lidarItems.length === 0 || !lidarEpc
+												: people.length === 0)
+										}
 										onClick={onSend}
 									>
 										{busy ? "Sending…" : "Send fake event"}
 									</Button>
 								</div>
 							</div>
-							{people.length === 0 ? (
+							{lidarReader && lidarItemsError ? (
+								<p className="text-sm text-destructive">{lidarItemsError}</p>
+							) : null}
+							{lidarReader && !lidarItemsError && lidarItems.length === 0 ? (
+								<p className="text-sm text-muted-foreground">
+									Add shelf tags under LiDAR items first.
+								</p>
+							) : null}
+							{!lidarReader && people.length === 0 ? (
 								<p className="text-sm text-muted-foreground">
 									Add people under People first.
 								</p>
@@ -338,7 +481,7 @@ function SimulateTourEvent() {
 						<p className="text-sm text-muted-foreground">No events yet.</p>
 					) : null}
 					{events.length > 0 ? (
-						<div className="h-[min(40vh,320px)] w-full overflow-auto rounded-none border border-border">
+						<div className="max-h-80 w-full min-h-0 overflow-auto rounded-none border border-border">
 							<Table>
 								<TableHeader>
 									<TableRow>
@@ -347,7 +490,7 @@ function SimulateTourEvent() {
 										</TableHead>
 										<TableHead className="text-[11px]">Source</TableHead>
 										<TableHead className="min-w-32 text-[11px]">EPC</TableHead>
-										<TableHead className="text-[11px]">Person</TableHead>
+										<TableHead className="text-[11px]">Person / item</TableHead>
 										<TableHead className="text-[11px]">Tour</TableHead>
 										<TableHead className="text-[11px]">Reader</TableHead>
 									</TableRow>
@@ -364,8 +507,8 @@ function SimulateTourEvent() {
 											<TableCell className="whitespace-nowrap font-mono text-[10px]">
 												{ev.epc ?? "—"}
 											</TableCell>
-											<TableCell className="whitespace-nowrap">
-												<EventPersonCell ev={ev} />
+											<TableCell className="min-w-0 max-w-xs">
+												<EventAttributionCell ev={ev} />
 											</TableCell>
 											<TableCell className="whitespace-nowrap font-mono text-[10px] text-muted-foreground">
 												{ev.tour_id ?? "—"}
@@ -382,7 +525,7 @@ function SimulateTourEvent() {
 				</div>
 
 				<AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
-					<AlertDialogContent className="w-[min(100vw-2rem,28rem)] rounded-none sm:max-w-md">
+					<AlertDialogContent className="w-full max-w-md rounded-none">
 						<AlertDialogHeader>
 							<AlertDialogTitle>Delete all RFID reads?</AlertDialogTitle>
 							<AlertDialogDescription>
