@@ -620,6 +620,10 @@ components:
         item_desc:
           type: string
           nullable: true
+        name:
+          type: string
+          nullable: true
+          description: Display title on the LiDAR product card; falls back to item_desc when unset.
 
     LidarItemCreate:
       type: object
@@ -636,6 +640,9 @@ components:
         item_desc:
           type: string
           nullable: true
+        name:
+          type: string
+          nullable: true
 
     LidarItemUpdate:
       type: object
@@ -647,6 +654,9 @@ components:
           type: string
           nullable: true
         item_desc:
+          type: string
+          nullable: true
+        name:
           type: string
           nullable: true
 

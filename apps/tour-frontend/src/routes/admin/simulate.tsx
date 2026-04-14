@@ -58,8 +58,8 @@ function isLidarReaderId(readerId: string): boolean {
 }
 
 function lidarItemLabel(it: LidarItemRow): string {
-	const desc = (it.item_desc ?? "").trim();
-	return desc.length > 0 ? `${desc} — ${it.epc}` : it.epc;
+	const label = (it.name ?? "").trim() || (it.item_desc ?? "").trim();
+	return label.length > 0 ? `${label} — ${it.epc}` : it.epc;
 }
 
 export const Route = createFileRoute("/admin/simulate")({

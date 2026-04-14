@@ -3,6 +3,8 @@ export type LidarProduct = {
 	upc: string;
 	item_url: string | null;
 	item_desc: string;
+	/** From `lidar_items.name`; overlay title when set. */
+	name?: string | null;
 };
 
 import { viteWsUrl } from "./env-urls";

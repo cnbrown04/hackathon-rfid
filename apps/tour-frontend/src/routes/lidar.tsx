@@ -18,6 +18,14 @@ export const Route = createFileRoute("/lidar")({
 // Product display names — update these after inspecting mesh names logged in the console
 const PRODUCT_NAMES: Record<string, string> = {};
 
+function lidarCardTitle(p: LidarProduct): string {
+	const fromDb = (p.name ?? "").trim();
+	if (fromDb.length > 0) return fromDb;
+	return (
+		PRODUCT_NAMES[p.item_desc] || p.item_desc.replace(/_/g, " ")
+	);
+}
+
 type CamPose = {
 	position: [number, number, number];
 	target: [number, number, number];
@@ -35,15 +43,15 @@ const CAMERA_DISTANCE = 0.8;
 
 // Manual center overrides — only use if a mesh bbox center is genuinely wrong
 const CENTER_OVERRIDES: Record<string, [number, number, number]> = {
-	irish_spring_1: [0.35, -0.05, 0.19],
-	irish_spring_2: [0.27, -0.05, 0.13],
-	armor_3: [0.29, 0.07, -0.11],
-	mesh_0006: [0.40, -0.01, -0.07],
-	mesh_0007: [0.35, 0.03, -0.09],
-	mesh_0003: [0.38, -0.075, -0.44],
-	mesh_0004: [0.38, -0.05, -0.38],
-	mesh_0005: [0.38, -0.025, -0.32],
-	mesh_0009: [0.36, -0.43, -0.41],
+	irish_spring_1: [0.35, -0.05, 0.19], // irish spring front
+	irish_spring_2: [0.27, -0.05, 0.13], // irish spring back
+	armor_3: [0.29, 0.07, -0.11], // armor all
+	armor_2: [0.40, -0.01, -0.07], // armor all mesh_0006
+ 	armor_1: [0.35, 0.03, -0.09], // armor all mesh_0007
+	toothpaste_1: [0.38, -0.075, -0.44], // toothpaste mesh_0003
+	toothpaste_2: [0.38, -0.05, -0.38], // toothpaste 2 mesh_0004
+	toothpaste_3: [0.38, -0.025, -0.32], // toothpaste 3 mesh_0005
+	ozark_trail: [0.36, -0.43, -0.41], // ozark trail mesh_0009
 };
 
 /** Strip Blender-style duplicate suffixes like .001, .002 */
@@ -273,20 +281,19 @@ function LidarPage() {
 			{productInfo && (
 				<div className="absolute inset-y-0 right-0 flex w-[45%] items-center justify-center p-12">
 					<div className="w-full max-w-lg border border-black/10 bg-white/70 p-14 text-black shadow-2xl backdrop-blur-sm">
+						<h2 className="text-4xl font-bold leading-tight">
+							{lidarCardTitle(productInfo)}
+						</h2>
 						{productInfo.item_url &&
 							productInfo.item_url !== "-" && (
-								<div className="mb-8 flex items-center justify-center">
+								<div className="mt-8 flex items-center justify-center">
 									<img
 										src={productInfo.item_url}
-										alt={productInfo.item_desc.replace(/_/g, " ")}
+										alt={lidarCardTitle(productInfo)}
 										className="h-56 w-56 object-contain"
 									/>
 								</div>
 							)}
-						<h2 className="text-4xl font-bold leading-tight">
-							{PRODUCT_NAMES[productInfo.item_desc] ||
-								productInfo.item_desc.replace(/_/g, " ")}
-						</h2>
 						<div className="mt-8 space-y-4 text-xl">
 							<p>
 								<span className="font-medium text-black/50">EPC </span>

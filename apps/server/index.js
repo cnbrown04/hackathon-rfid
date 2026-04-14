@@ -349,6 +349,7 @@ async function dispatchRfidReadFromNotify(row) {
             upc: item.upc,
             item_url: item.item_url,
             item_desc: item.item_desc,
+            name: item.name ?? null,
           },
         });
       } else {
@@ -1145,7 +1146,7 @@ const httpServer = http.createServer(async (req, res) => {
       if (req.method === "GET" && segments.length === 1) {
         pool
           .query(
-            "SELECT epc, upc, item_url, item_desc FROM lidar_items ORDER BY epc ASC"
+            "SELECT epc, upc, item_url, item_desc, name FROM lidar_items ORDER BY epc ASC"
           )
           .then((result) => json(res, 200, result.rows))
           .catch((err) => {
@@ -1175,10 +1176,14 @@ const httpServer = http.createServer(async (req, res) => {
               body.item_desc != null && String(body.item_desc).trim() !== ""
                 ? String(body.item_desc).trim()
                 : null;
+            const name =
+              body.name != null && String(body.name).trim() !== ""
+                ? String(body.name).trim()
+                : null;
             const result = await pool.query(
-              `INSERT INTO lidar_items (epc, upc, item_url, item_desc) VALUES ($1,$2,$3,$4)
-               RETURNING epc, upc, item_url, item_desc`,
-              [epc, upc, itemUrl, itemDesc]
+              `INSERT INTO lidar_items (epc, upc, item_url, item_desc, name) VALUES ($1,$2,$3,$4,$5)
+               RETURNING epc, upc, item_url, item_desc, name`,
+              [epc, upc, itemUrl, itemDesc, name]
             );
             json(res, 201, result.rows[0]);
           })
@@ -1210,10 +1215,14 @@ const httpServer = http.createServer(async (req, res) => {
                 body.item_desc != null && String(body.item_desc).trim() !== ""
                   ? String(body.item_desc).trim()
                   : null;
+              const name =
+                body.name != null && String(body.name).trim() !== ""
+                  ? String(body.name).trim()
+                  : null;
               const result = await pool.query(
-                `UPDATE lidar_items SET upc = $1, item_url = $2, item_desc = $3 WHERE epc = $4
-                 RETURNING epc, upc, item_url, item_desc`,
-                [upc, itemUrl, itemDesc, epcKey]
+                `UPDATE lidar_items SET upc = $1, item_url = $2, item_desc = $3, name = $4 WHERE epc = $5
+                 RETURNING epc, upc, item_url, item_desc, name`,
+                [upc, itemUrl, itemDesc, name, epcKey]
               );
               if (result.rows.length === 0) {
                 json(res, 404, { error: "Not found" });

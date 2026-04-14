@@ -45,6 +45,7 @@ type FormState = {
 	upc: string;
 	item_url: string;
 	item_desc: string;
+	name: string;
 };
 
 const emptyForm = (): FormState => ({
@@ -52,6 +53,7 @@ const emptyForm = (): FormState => ({
 	upc: "",
 	item_url: "",
 	item_desc: "",
+	name: "",
 });
 
 function LidarItemsPage() {
@@ -85,6 +87,7 @@ function LidarItemsPage() {
 				upc: form.upc.trim() || null,
 				item_url: form.item_url.trim() || null,
 				item_desc: form.item_desc.trim() || null,
+				name: form.name.trim() || null,
 			});
 			setForm(emptyForm());
 			await reload();
@@ -101,6 +104,7 @@ function LidarItemsPage() {
 			upc: row.upc ?? "",
 			item_url: row.item_url ?? "",
 			item_desc: row.item_desc ?? "",
+			name: row.name ?? "",
 		});
 		setEditOpen(true);
 	}
@@ -112,6 +116,7 @@ function LidarItemsPage() {
 				upc: editForm.upc.trim() || null,
 				item_url: editForm.item_url.trim() || null,
 				item_desc: editForm.item_desc.trim() || null,
+				name: editForm.name.trim() || null,
 			});
 			setEditOpen(false);
 			setEditing(null);
@@ -170,6 +175,17 @@ function LidarItemsPage() {
 						/>
 					</div>
 					<div className="space-y-2 sm:col-span-2 lg:col-span-3">
+						<Label htmlFor="li-name">Display name</Label>
+						<Input
+							id="li-name"
+							value={form.name}
+							onChange={(e) =>
+								setForm((f) => ({ ...f, name: e.target.value }))
+							}
+							placeholder="Shown at the top of the LiDAR card"
+						/>
+					</div>
+					<div className="space-y-2 sm:col-span-2 lg:col-span-3">
 						<Label htmlFor="li-url">Item URL</Label>
 						<Input
 							id="li-url"
@@ -208,6 +224,7 @@ function LidarItemsPage() {
 								<TableRow>
 									<TableHead>EPC</TableHead>
 									<TableHead>UPC</TableHead>
+									<TableHead>Display name</TableHead>
 									<TableHead>Description</TableHead>
 									<TableHead>URL</TableHead>
 									<TableHead className="text-right">Actions</TableHead>
@@ -222,6 +239,7 @@ function LidarItemsPage() {
 										<TableCell className="text-muted-foreground text-sm">
 											{row.upc ?? "—"}
 										</TableCell>
+										<TableCell className="text-sm">{row.name?.trim() || "—"}</TableCell>
 										<TableCell className="text-sm">{row.item_desc ?? "—"}</TableCell>
 										<TableCell className="text-muted-foreground text-xs">
 											{row.item_url ? (
@@ -292,6 +310,17 @@ function LidarItemsPage() {
 								onChange={(e) =>
 									setEditForm((f) => ({ ...f, upc: e.target.value }))
 								}
+							/>
+						</div>
+						<div className="space-y-2 sm:col-span-2">
+							<Label htmlFor="ed-name">Display name</Label>
+							<Input
+								id="ed-name"
+								value={editForm.name}
+								onChange={(e) =>
+									setEditForm((f) => ({ ...f, name: e.target.value }))
+								}
+								placeholder="Shown at the top of the LiDAR card"
 							/>
 						</div>
 						<div className="space-y-2 sm:col-span-2">

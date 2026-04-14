@@ -164,6 +164,8 @@ export type LidarItemRow = {
 	upc: string | null;
 	item_url: string | null;
 	item_desc: string | null;
+	/** Shown on the LiDAR overlay; optional. */
+	name?: string | null;
 };
 
 export async function fetchLidarItems(): Promise<LidarItemRow[]> {
@@ -179,6 +181,7 @@ export async function createLidarItem(body: {
 	upc?: string | null;
 	item_url?: string | null;
 	item_desc?: string | null;
+	name?: string | null;
 }): Promise<LidarItemRow> {
 	const r = await fetch(`${API_BASE}/api/admin/lidar-items`, {
 		method: "POST",
@@ -195,6 +198,7 @@ export async function updateLidarItem(
 		upc?: string | null;
 		item_url?: string | null;
 		item_desc?: string | null;
+		name?: string | null;
 	},
 ): Promise<LidarItemRow> {
 	const r = await fetch(
