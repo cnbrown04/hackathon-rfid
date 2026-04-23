@@ -3,7 +3,7 @@ const env_loader = @import("env_loader.zig");
 const pg_sink = @import("pg_sink.zig");
 
 const c = @cImport({
-    @cInclude("rfidapi.h");
+    @cInclude("rfidapi_compat.h");
 });
 
 const sig_h = @cImport({

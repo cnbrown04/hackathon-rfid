@@ -1,0 +1,11 @@
+services:
+  rfid-host:
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: rfid-host:amd64
+    env_file:
+      - path: .env
+        required: false
+    command: ["169.254.57.58", "0"]

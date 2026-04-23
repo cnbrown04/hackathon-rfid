@@ -16,6 +16,7 @@ pub fn build(b: *std.Build) void {
     });
 
     exe.addIncludePath(b.path("linux64_sdk/include"));
+    exe.addIncludePath(b.path("src"));
     exe.addLibraryPath(b.path("linux64_sdk/lib"));
     exe.addIncludePath(.{ .cwd_relative = "/usr/include/postgresql" });
     exe.linkLibC();

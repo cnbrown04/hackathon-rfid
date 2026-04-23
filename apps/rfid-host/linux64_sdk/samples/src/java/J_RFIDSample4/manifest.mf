@@ -1,0 +1,5 @@
+Manifest-Version: 1.0
+X-COMMENT: Main-Class will be added automatically by build
+Main-Class: rfidsample4.RFIDSample4;
+Class-path: /apps/J_RFIDSample4.jar; /platform/lib/Symbol.RFID.API3.jar
+
