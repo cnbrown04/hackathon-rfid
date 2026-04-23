@@ -21,11 +21,11 @@ pub fn build(b: *std.Build) void {
     exe.addIncludePath(.{ .cwd_relative = "/usr/include/postgresql" });
     exe.linkLibC();
     exe.linkSystemLibrary("pq");
+    exe.linkSystemLibrary("rfidapi32");
     exe.linkSystemLibrary("ltk");
     exe.linkSystemLibrary("utils");
     exe.linkSystemLibrary("xml2");
     exe.linkSystemLibrary("stdc++");
-    exe.linkSystemLibrary("rfidapi32");
     exe.linkSystemLibrary("pthread");
 
     b.installArtifact(exe);

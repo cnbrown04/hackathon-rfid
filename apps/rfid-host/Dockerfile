@@ -32,6 +32,7 @@ WORKDIR /app
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
       ca-certificates \
+      libcurl4 \
       libpq5 \
       libstdc++6 \
       libxml2 && \
@@ -41,5 +42,6 @@ COPY --from=builder /app/zig-out/bin/rfid_queue_host /app/rfid_queue_host
 COPY --from=builder /app/linux64_sdk /app/linux64_sdk
 
 ENV LD_LIBRARY_PATH=/app/linux64_sdk/lib
+ENV LD_PRELOAD=/app/linux64_sdk/lib/libltk.so:/app/linux64_sdk/lib/libutils.so:libxml2.so.2
 
 ENTRYPOINT ["/app/rfid_queue_host"]
